@@ -10,6 +10,7 @@
 #include "SurveyText.h"
 
 #include <atomic>
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <span>
@@ -83,6 +84,17 @@ namespace Core
 	// a part's switch for the next game start: kept at once, written to Settings.ini by one main-thread task. Any thread; false for a
 	// part this core does not have
 	bool SetSwitch(std::string_view a_part, bool a_on);
+
+	// ------------------------------------------------------------------ Lighting.cpp: the lighting the game draws with, read once
+	// data load, main thread, once, before anything reads it: GameLighting.h's one look, logged
+	void ReadLighting();
+	// GameLighting's number (0 Community Shaders, 1 ENB, 2 Vanilla); Vanilla before ReadLighting. Any thread
+	[[nodiscard]] std::uint8_t LightingFound();
+	[[nodiscard]] const char*  LightingName();
+	[[nodiscard]] bool         LightingRead();
+	// CommunityShaders.dll is loaded, so Light Limit Fix reads every light's first words; and a shader of it draws inverse square
+	[[nodiscard]] bool LightLimitFix();
+	[[nodiscard]] bool InverseSquare();
 
 	// ------------------------------------------------------------------ Menu.cpp / DevBench.cpp
 	void RegisterMenu();

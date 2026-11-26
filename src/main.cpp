@@ -21,6 +21,7 @@
 //   Hooks.h, HookTable.cpp  the hook table's game side: a slot's one thunk, written only when a part asked for it
 //   DimmerKeys.h     game-free: a light's pulse baked into keys the game's own dimmer plays     DimmerKit.h  the game's dimmer
 //   Composer.h       game-free: one light's brightness as one product, written only when it changes
+//   ObjectRows.h     game-free: the object-light library's rows, lookups and choices     Lighting.cpp  the lighting, read once
 //   Probe.cpp        the test part, in the testing build only: DevBench tries the engine routes on the game's own lights
 //   Menu.cpp         the SKSE Menu Framework section     DevBench.cpp  DevBench's inspect and control (optional)
 //   SKSEMenuFramework.h, DevBenchAPI.*  those mods' own files; the other shared files (master: Tools\Shared Plugin Code)
@@ -56,6 +57,8 @@ namespace
 			Core::Guarded("the hooks of post-load", []() { Core::Hooks::WriteAtPostLoad(); });
 			break;
 		case SKSE::MessagingInterface::kDataLoaded:
+			// first: every part, the menu and DevBench read the one answer
+			Core::Guarded("the lighting", []() { Core::ReadLighting(); });
 			Core::Guarded("the box at data load", []() { Core::TellPlayer(); });
 			Core::Guarded("the translation file", []() { SKSE::log::info("{}", Translation::Load("IlluminatedCore")); });
 			Core::Guarded("the menu section", []() { Core::RegisterMenu(); });

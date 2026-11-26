@@ -118,6 +118,7 @@ namespace ObjectRows
 		std::vector<Point>           points;
 		Pulse::Kind                  pulse{ Pulse::Kind::kNone };
 		float                        pulseDepth{ 1.0f };
+		std::optional<FormText>      light;      // light=: the light record the row's light is made from, when it names one
 		std::size_t                  line{ 0 };  // where its block starts, for the log
 	};
 
@@ -196,6 +197,23 @@ namespace ObjectRows
 				a_text.remove_prefix(comma + 1);
 			}
 			return out.size() == a_count ? std::optional{ out } : std::nullopt;
+		}
+
+		// a whole number, every character read (format=1.00000001 is not 1; 1.0 and 1.00 are), within a million either way
+		[[nodiscard]] inline std::optional<int> Integer(std::string_view a_text)
+		{
+			a_text = Trim(a_text);
+			int        v = 0;
+			const auto last = a_text.data() + a_text.size();
+			auto [end, ec] = std::from_chars(a_text.data(), last, v);
+			if (a_text.empty() || ec != std::errc{} || v < -1000000 || v > 1000000) {
+				return std::nullopt;
+			}
+			// a point followed by zeros only still names the whole number
+			if (end != last && *end == '.' && end + 1 != last && std::all_of(end + 1, last, [](char a_c) { return a_c == '0'; })) {
+				end = last;
+			}
+			return end == last ? std::optional{ v } : std::nullopt;
 		}
 
 		[[nodiscard]] inline std::optional<float> Number(std::string_view a_text, float a_least, float a_most)
@@ -421,9 +439,9 @@ namespace ObjectRows
 			const auto value = Detail::Trim(line.substr(equals + 1));
 			if (!row) {
 				const auto key = Detail::Lower(rawKey);
-				const auto n = Detail::Numbers(value, 1);
-				if ((key == "format" || key == "order") && n && *n == std::vector<float>{ std::floor((*n)[0]) } && std::abs((*n)[0]) <= 1000000.0f) {
-					(key == "format" ? file.format : file.order) = static_cast<int>((*n)[0]);
+				const auto n = Detail::Integer(value);
+				if ((key == "format" || key == "order") && n) {
+					(key == "format" ? file.format : file.order) = *n;
 					formatSeen = formatSeen || key == "format";
 				} else {
 					file.faults.push_back({ number, "line " + std::to_string(number) + ": " + std::string(rawKey) + " is no file setting (format, order)" });
@@ -454,7 +472,9 @@ namespace ObjectRows
 			if (name == "name") {
 				row->name = value;
 			} else if (name == "model") {
-				value.empty() ? wrong() : row->models.push_back(NormalModel(value));
+				// a folder alone ("Meshes/") names no model: it would match an object with no model at all
+				const auto model = NormalModel(value);
+				model.empty() || model.ends_with('\\') ? wrong() : row->models.push_back(model);
 			} else if (name == "form") {
 				const auto form = ReadForm(value);
 				form ? row->forms.push_back(*form) : wrong();
@@ -506,13 +526,19 @@ namespace ObjectRows
 				const auto v = Detail::Number(value, 0.0f, DimmerKeys::kMostDepth);
 				v ? void(row->pulseDepth = *v) : wrong();
 			} else {
-				// light=: a light record named as the row's own; read by the game side, its spelling checked here
-				ReadForm(value) ? void() : wrong();
+				// light=: a light record named as the row's own, kept for the game side (form= names the object, light= its light)
+				const auto light = ReadForm(value);
+				light ? void(row->light = *light) : wrong();
 			}
 		}
 		finish();
 		if (!formatSeen) {
 			file.faults.push_back({ 0, "the file has no format line: the file is left out" });
+			file.rows.clear();
+		} else if (file.format != kFormat) {
+			// a file of another format with no block reaches here: left out like one with blocks
+			file.faults.push_back({ 0, "the file's format is " + std::to_string(file.format) + "; this core reads format " + std::to_string(kFormat) +
+										   ": the file is left out" });
 			file.rows.clear();
 		}
 		return file;
@@ -570,11 +596,17 @@ namespace ObjectRows
 					rows.push_back(std::move(r));
 					files.push_back(source.name);
 					ranks.push_back(rank);
+					// a row that names one object twice (model=a.nif and model=Meshes/A.NIF) is still one light: indexed once per key
+					const auto once = [at](std::vector<std::size_t>& a_list) {
+						if (a_list.empty() || a_list.back() != at) {
+							a_list.push_back(at);
+						}
+					};
 					for (const auto& m : rows.back().models) {
-						models[m].push_back(at);
+						once(models[m]);
 					}
 					for (const auto& f : rows.back().forms) {
-						forms[FormKey(f)].push_back(at);
+						once(forms[FormKey(f)]);
 					}
 				}
 				// this file names these objects: what an earlier file had for them is replaced, never added to
@@ -587,27 +619,40 @@ namespace ObjectRows
 			}
 		}
 
-		// the rows that light an object. Every list holds the rows of one file (a later file replaces it whole), so the file that wins
-		// the object is the one ranked last of the two lists; by form wins over by model only when one file names it both ways
-		[[nodiscard]] std::span<const std::size_t> Of(const std::optional<FormText>& a_form, std::string_view a_model) const
+		// the rows that light an object, asked by every name it has: its plugin and id, its editor ID (the game side reads both off
+		// the base form) and its model, so a file that names it one way and a file that names it another still meet. Every list holds
+		// the rows of one file (a later file replaces it whole): the file ranked last of them wins the object; within one file, its
+		// rows by plugin and id first, then by editor ID, then by model
+		[[nodiscard]] std::span<const std::size_t> Of(const std::optional<FormText>& a_form, std::string_view a_editorId, std::string_view a_model) const
 		{
-			const std::vector<std::size_t>* byItsForm = nullptr;
-			if (a_form) {
-				if (const auto it = byForm.find(FormKey(*a_form)); it != byForm.end()) {
-					byItsForm = &it->second;
+			const std::vector<std::size_t>* best = nullptr;
+			std::size_t                     bestRank = 0;
+			int                             bestWay = -1;
+			const auto                      weigh = [&](const std::vector<std::size_t>* a_list, int a_way) {
+				if (!a_list || a_list->empty()) {
+					return;
 				}
+				const auto rank = ranks[a_list->front()];
+				if (!best || rank > bestRank || (rank == bestRank && a_way > bestWay)) {
+					best = a_list;
+					bestRank = rank;
+					bestWay = a_way;
+				}
+			};
+			if (a_form && a_form->editorId.empty()) {
+				// the index holds plugin names in lower case: a caller may hand the file's own spelling
+				const auto it = byForm.find(FormKey(FormText{ Detail::Lower(a_form->plugin), a_form->id, {} }));
+				weigh(it != byForm.end() ? &it->second : nullptr, 2);
 			}
-			const std::vector<std::size_t>* byItsModel = nullptr;
-			if (const auto it = byModel.find(NormalModel(a_model)); it != byModel.end()) {
-				byItsModel = &it->second;
+			if (const auto editorId = a_form && !a_form->editorId.empty() ? std::string_view(a_form->editorId) : a_editorId; !editorId.empty()) {
+				const auto it = byForm.find(FormKey(FormText{ {}, 0, Detail::Lower(editorId) }));
+				weigh(it != byForm.end() ? &it->second : nullptr, 1);
 			}
-			if (byItsForm && byItsModel) {
-				return ranks[byItsModel->front()] > ranks[byItsForm->front()] ? *byItsModel : *byItsForm;
+			if (!a_model.empty()) {
+				const auto it = byModel.find(NormalModel(a_model));
+				weigh(it != byModel.end() ? &it->second : nullptr, 0);
 			}
-			if (byItsForm) {
-				return *byItsForm;
-			}
-			return byItsModel ? std::span<const std::size_t>(*byItsModel) : std::span<const std::size_t>{};
+			return best ? std::span<const std::size_t>(*best) : std::span<const std::size_t>{};
 		}
 
 		[[nodiscard]] const Row&         RowAt(std::size_t a_row) const { return rows.at(a_row); }

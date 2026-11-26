@@ -15,7 +15,7 @@ namespace ObjectRowsChecks
 	using Check = void (*)(bool a_ok, const char* a_what, int a_line);
 
 	// the checks one Run makes (raise it when checks are added)
-	inline constexpr int kCount = 78;
+	inline constexpr int kCount = 86;
 
 #define CORE_CHECK(...) a_check((__VA_ARGS__), #__VA_ARGS__, __LINE__)
 
@@ -34,6 +34,10 @@ namespace ObjectRowsChecks
 			"[object]\r\nform=0x1A2B~Some Mod.esp\r\nform=Other.esm|0xFF\r\nform=MyLamp_01\r\ncolor=10,20,30\r\npulse=fire\r\npulsedepth=0.5\r\n"
 			"flags=RandomAnimStart\r\nlight=0x55~Some Mod.esp\r\n");
 		CORE_CHECK(good.format == 1 && good.order == 5 && good.rows.size() == 2 && good.faults.empty());
+		// the rows below are read by place: a short list stops the set here, its count then names the cut (RunSet)
+		if (good.rows.size() < 2) {
+			return;
+		}
 		const auto& lamp = good.rows[0];
 		CORE_CHECK(lamp.name == "Dwemer lamp" && lamp.models == std::vector<std::string>{ "dwemer\\lamp01.nif" } && lamp.line == 5);
 		CORE_CHECK(lamp.points.size() == 2 && lamp.points[1].x == 10.0f && lamp.points[1].y == -4.0f && lamp.points[1].z == 30.0f);
@@ -117,6 +121,22 @@ namespace ObjectRowsChecks
 		// a row that shows on no lighting is named, not read as fine
 		const auto nowhere = Read("format=1\n[object]\nmodel=a.nif\non=enb\ncolor.cs=1,2,3\n");
 		CORE_CHECK(nowhere.rows.empty() && nowhere.faults.size() == 1 && nowhere.faults[0].text.find("shows on no lighting") != std::string::npos);
+		// the light record a row names is kept for the game side, apart from the object it lights
+		CORE_CHECK(bugs.light == FormText{ "some mod.esp", 0x55, {} } && !lamp.light);
+		// format and order are whole numbers written as such
+		const auto almost = Read("format=1.00000001\n[object]\nmodel=a.nif\ncolor=1,2,3\n");
+		const auto halfOrder = Read("format=1\norder=2.5\n[object]\nmodel=a.nif\ncolor=1,2,3\n");
+		CORE_CHECK(almost.rows.empty() && !almost.faults.empty() && halfOrder.rows.size() == 1 && halfOrder.order == 0 && halfOrder.faults.size() == 1);
+		// ... and a point followed by zeros still names the whole number; a point alone does not
+		const auto pointZero = Read("format=1.0\norder=10.00\n[object]\nmodel=a.nif\ncolor=1,2,3\n");
+		const auto pointAlone = Read("format=1.\n[object]\nmodel=a.nif\ncolor=1,2,3\n");
+		CORE_CHECK(pointZero.rows.size() == 1 && pointZero.faults.empty() && pointZero.format == 1 && pointZero.order == 10 && pointAlone.rows.empty());
+		// a file of another format with no block is left out too
+		const auto lonely = Read("format=2\n");
+		CORE_CHECK(lonely.rows.empty() && lonely.faults.size() == 1 && lonely.faults[0].text.find("format is 2") != std::string::npos);
+		// a folder alone names no model
+		const auto folder = Read("format=1\n[object]\nmodel=Meshes/\ncolor=1,2,3\n");
+		CORE_CHECK(folder.rows.empty() && folder.faults.size() == 1);
 		// a block head with spaces or a note after it is still a block head
 		const auto heads = Read("format=1\n[ Object ] ; lamps\nmodel=a.nif\ncolor=1,2,3\n[object]# jars\nmodel=b.nif\ncolor=1,2,3\n");
 		CORE_CHECK(heads.rows.size() == 2 && heads.faults.empty());
@@ -127,37 +147,51 @@ namespace ObjectRowsChecks
 		const auto under = Read("format=1\norder=-1\n[object]\nmodel=b.nif\ncolor=8,8,8\n");
 		const auto forms = Read("format=1\n[object]\nform=0x1~x.esp\nmodel=c.nif\ncolor=7,7,7\n");
 		Index      index({ { "zz.txt", over }, { "a.txt", two }, { "b.txt", under }, { "c.txt", forms } });
-		const auto a = index.Of(std::nullopt, "Meshes\\a.nif");
-		const auto b = index.Of(std::nullopt, "b.nif");
+		const auto a = index.Of(std::nullopt, "", "Meshes\\a.nif");
+		const auto b = index.Of(std::nullopt, "", "b.nif");
 		// the higher order wins a's object whatever the names; two's two rows for it are dropped, never added to
 		CORE_CHECK(a.size() == 1 && index.RowAt(a[0]).color.plain == Rgb{ 9, 9, 9 } && index.FileOf(a[0]) == "zz.txt");
 		// b's object: two (order 0) beats under (order -1) - two's row stands
 		CORE_CHECK(b.size() == 1 && index.RowAt(b[0]).color.plain == Rgb{ 3, 3, 3 } && index.FileOf(b[0]) == "a.txt");
 		// one file naming an object by form and by model: its form row answers; a higher-order file's model row beats another file's form
 		// row (zz.txt, order 2, over c.txt, order 0); a form no row names falls to the model
-		const auto byForm = index.Of(FormText{ "x.esp", 1, {} }, "c.nif");
-		const auto higher = index.Of(FormText{ "x.esp", 1, {} }, "a.nif");
+		const auto byForm = index.Of(FormText{ "x.esp", 1, {} }, "", "c.nif");
+		const auto higher = index.Of(FormText{ "x.esp", 1, {} }, "", "a.nif");
 		CORE_CHECK(byForm.size() == 1 && index.RowAt(byForm[0]).color.plain == Rgb{ 7, 7, 7 } && higher.size() == 1 && index.RowAt(higher[0]).color.plain == Rgb{ 9, 9, 9 });
-		CORE_CHECK(index.Of(FormText{ "x.esp", 2, {} }, "a.nif").size() == 1 && index.Of(std::nullopt, "none.nif").empty());
-		CORE_CHECK(index.Of(std::nullopt, "c.nif").size() == 1 && index.Models() == 3 && index.Forms() == 1);
+		CORE_CHECK(index.Of(FormText{ "x.esp", 2, {} }, "", "a.nif").size() == 1 && index.Of(std::nullopt, "", "none.nif").empty());
+		CORE_CHECK(index.Of(std::nullopt, "", "c.nif").size() == 1 && index.Models() == 3 && index.Forms() == 1);
 		// the same order: the later file name wins
 		const auto first = Read("format=1\n[object]\nmodel=a.nif\ncolor=1,0,0\n");
 		const auto second = Read("format=1\n[object]\nmodel=a.nif\ncolor=0,1,0\n");
 		Index      tie({ { "b.txt", second }, { "a.txt", first } });
-		const auto tied = tie.Of(std::nullopt, "a.nif");
+		const auto tied = tie.Of(std::nullopt, "", "a.nif");
 		CORE_CHECK(tied.size() == 1 && tie.FileOf(tied[0]) == "b.txt");
 		// several rows of one file for one object stay together
 		Index one({ { "a.txt", two } });
-		CORE_CHECK(one.Of(std::nullopt, "a.nif").size() == 2);
+		CORE_CHECK(one.Of(std::nullopt, "", "a.nif").size() == 2);
 		// a higher-order file that names the object by model wins over a lower one that named it by form; one file naming it both
 		// ways keeps its form rows first
 		const auto byBoth = Read("format=1\n[object]\nform=0x12~lamps.esp\ncolor=1,1,1\n[object]\nmodel=lamp.nif\ncolor=2,2,2\n");
 		const auto patch = Read("format=1\norder=5\n[object]\nmodel=lamp.nif\ncolor=5,5,5\n");
 		Index      ranked({ { "a.txt", byBoth }, { "b.txt", patch } });
-		const auto won = ranked.Of(FormText{ "lamps.esp", 0x12, {} }, "lamp.nif");
+		const auto won = ranked.Of(FormText{ "lamps.esp", 0x12, {} }, "", "lamp.nif");
 		Index      alone({ { "a.txt", byBoth } });
-		const auto mine = alone.Of(FormText{ "lamps.esp", 0x12, {} }, "lamp.nif");
+		const auto mine = alone.Of(FormText{ "lamps.esp", 0x12, {} }, "", "lamp.nif");
 		CORE_CHECK(won.size() == 1 && ranked.RowAt(won[0]).color.plain == Rgb{ 5, 5, 5 } && mine.size() == 1 && alone.RowAt(mine[0]).color.plain == Rgb{ 1, 1, 1 });
+
+		// one object named by plugin and id in one file and by editor ID in another: the higher order wins it, whichever way asked
+		const auto byId = Read("format=1\n[object]\nform=0x12~lamps.esp\ncolor=1,1,1\n");
+		const auto byName = Read("format=1\norder=5\n[object]\nform=MyLamp\ncolor=5,5,5\n");
+		Index      spelled({ { "a.txt", byId }, { "b.txt", byName } });
+		const auto asked = spelled.Of(FormText{ "lamps.esp", 0x12, {} }, "MyLamp", "lamp.nif");
+		CORE_CHECK(asked.size() == 1 && spelled.RowAt(asked[0]).color.plain == Rgb{ 5, 5, 5 });
+		// a plugin asked by its file's own spelling still finds the rows that named it
+		const auto cased = alone.Of(FormText{ "Lamps.ESP", 0x12, {} }, "", "");
+		CORE_CHECK(cased.size() == 1 && alone.RowAt(cased[0]).color.plain == Rgb{ 1, 1, 1 });
+		// a row naming one object twice is one light
+		const auto twiceNamed = Read("format=1\n[object]\nmodel=a.nif\nmodel=Meshes/A.NIF\ncolor=1,2,3\n");
+		Index      once({ { "a.txt", twiceNamed } });
+		CORE_CHECK(once.Of(std::nullopt, "", "a.nif").size() == 1);
 
 		// who gets a light: the nearest up to the cap
 		const std::vector<Candidate> near5{ { 1, 100.0f, false }, { 2, 50.0f, false }, { 3, 400.0f, false }, { 4, 10.0f, false }, { 5, 200.0f, false } };
