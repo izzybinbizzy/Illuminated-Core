@@ -348,7 +348,12 @@ namespace Core
 			if (action != "dimmer") {
 				return DevBenchGlue::Refusal("unknown action '" + action + "'", json::array({ "dimmer", "read", "release", "frames", "light", "slider" }));
 			}
-			const bool onOwn = DevBenchGlue::Text(a_args, "target") == "own";
+			const auto target = DevBenchGlue::Text(a_args, "target");
+			if (!target.empty() && target != "casting" && target != "own") {
+				return DevBenchGlue::Refusal("target is casting (the game's casting light, as without a target) or own (the test module's light)",
+					json::array({ "casting", "own" }));
+			}
+			const bool onOwn = target == "own";
 			const auto kind = Pulse::KindOf(DevBenchGlue::Text(a_args, "kind"));
 			const auto asked = DevBenchGlue::Number(a_args, "depth").value_or(1.0);
 			if (!kind || !(DimmerKeys::Period(*kind) > 0.0)) {

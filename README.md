@@ -6,9 +6,11 @@ One plugin for every Illuminated mod. Each mod's own download carries its data a
 manifest names runs only while that mod is installed.
 
 ## Where it stands
-The kernel only. It loads, reads the manifests and its own settings file, shows its menu section and answers DevBench. It carries
-the hook table every part will share (no hook is written while no part asks for one), and its testing build a test part that
-tries the engine's own light dimmer through DevBench. No mod's
+The kernel only. It loads, reads the manifests and its own settings file, finds the lighting the game draws with once at data
+load (Community Shaders, ENB or Vanilla), shows its menu section and answers DevBench. It carries the hook table every part will
+share (no hook is written while no part asks for one), the dimmer's keys, the light composer and the object-light library's
+data reader (all tested off the game), and its testing build a test part that tries the engine's own light dimmer on the game's
+casting light and on one light of its own, with a slider, through DevBench. No mod's
 part is built in yet: Illuminated - Spell Lighting NG, RELight - Spell Lighting NG, Illuminated - Creature Lighting NG,
 Illuminated - Soul Gem Hub and Dynamic Wards each still ship a plugin of its own, and each moves in here in turn. Nothing here is
 released.
