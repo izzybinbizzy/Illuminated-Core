@@ -1,0 +1,31 @@
+# CodeRabbit settings for this repository (https://docs.coderabbit.ai/reference/configuration)
+language: en-US
+reviews:
+  profile: assertive
+  high_level_summary: true
+  poem: false
+  request_changes_workflow: false
+  review_status: true
+  auto_review:
+    enabled: true
+    auto_pause_after_reviewed_commits: 0
+    drafts: false
+    base_branches:
+      - main
+  path_instructions:
+    - path: "src/**"
+      instructions: >-
+        SKSE plugin for Skyrim SE, AE and VR built on CommonLibSSE-NG: one DLL that holds the code of several lighting
+        mods, each part woken only by a small manifest file its data download ships. Check that every file the plugin
+        reads (manifests, the settings file) is treated as hostile input (size caps, a byte order mark, wrong types,
+        missing keys) and that no reader can throw into the game; that no exception can leave a game callback, a menu
+        draw, an SKSE task or a DevBench handler; that state shared between the game's main thread, the menu's render
+        thread and DevBench's listener thread is read under its lock or is never changed after it is made; that
+        nothing runs on a timer or every frame; and that every text a player reads is plain and names what to do.
+    - path: "tests/**"
+      instructions: >-
+        Off-game tests of the game-free code (src/*Text.h and the shared check headers), built with clang's address
+        and undefined-behavior checkers. Check that every case is meaningful, that hostile inputs are covered, and
+        that the run fails when fewer checks ran than the shared check sets name.
+chat:
+  auto_reply: true
