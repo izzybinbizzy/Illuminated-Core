@@ -70,12 +70,12 @@ namespace
 		return a_index < a_list.size() ? a_list[a_index] : kNone;
 	}
 
-	// one check set run with its own floor: a set that ran fewer checks than it names was cut short, whatever the others ran
+	// one check set run against the count it names: fewer is a set cut short, more is a count that fell behind its checks
 	void RunSet(void (*a_run)(void (*)(bool, const char*, int)), int a_named, const char* a_what)
 	{
 		const int before = gChecks;
 		a_run(Check);
-		Check(gChecks - before >= a_named, a_what, __LINE__);
+		Check(gChecks - before == a_named, a_what, __LINE__);
 	}
 
 	void Versions()
@@ -337,6 +337,10 @@ namespace
 		CHECK(cut.problems.size() == 1 && state(cut, "wards") == State::kRuns && state(cut, "illuminated") == State::kRuns);
 		CHECK(ItemAt(cut.problems, 0).starts_with("The Modules folder (SKSE\\Plugins\\IlluminatedCore\\Modules) could not be read to its end") &&
 			  ItemAt(cut.problems, 0).ends_with("Check that the folder can be opened, then start the game again."));
+		// files found with none usable is told apart from nothing installed: an unread Settings.ini alone is no file found
+		CHECK(cut.filesFound && unread.filesFound && !Look({ {}, {}, kParts, kCoreNow, kFeatures, {}, true, 0, false }).filesFound);
+		// a look that failed: no row, one line, a box, and never the "nothing installed" reading
+		CHECK(Failed().rows.empty() && Failed().filesFound && Failed().problems.size() == 1 && !BoxText(Failed()).empty());
 		// with no mod reached at all the box still says so
 		CHECK(!BoxText(Look({ {}, {}, kParts, kCoreNow, kFeatures, {}, false, 0, true })).empty());
 		// a name the menu framework takes: a slash inside it is marked, everything else is as it was

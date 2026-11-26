@@ -167,26 +167,47 @@ namespace Core
 		return kParts;
 	}
 
+	namespace
+	{
+		// the files read and judged; throws when a read does (low memory, a path that cannot be turned to text)
+		[[nodiscard]] std::shared_ptr<const SurveyText::Survey> Surveyed()
+		{
+			std::size_t     leftOut = 0;
+			bool            folderUnread = false;
+			const auto      files = ReadManifests(leftOut, folderUnread);
+			const auto      read = FileText(kSwitches);
+			std::error_code ec;
+			// no file is every switch on; a file that is there and cannot be read is said so and never written over
+			const bool unread = !read && std::filesystem::exists(kSwitches, ec);
+			const auto switches = read.value_or(std::string{});
+			// an old version's plugin or files are looked for per part; no part is built in yet
+			auto survey = std::make_shared<const SurveyText::Survey>(
+				SurveyText::Look({ files, switches, kParts, VersionNow(), kFeatures, {}, unread, leftOut, folderUnread }));
+			if (survey->rows.empty()) {
+				SKSE::log::info("{}", survey->filesFound ? "no file of the Modules folder could be used: nothing runs" :
+														   "no mod that needs Illuminated - Core is installed: nothing runs");
+			}
+			for (const auto& row : survey->rows) {
+				SKSE::log::info("{} {}: {}", row.title, ManifestText::Shown(row.dataVersion),
+					row.state == SurveyText::State::kRuns ? "its part runs" : row.state == SurveyText::State::kSwitchedOff ? "switched off in Settings.ini" :
+																															 "stays off");
+			}
+			return survey;
+		}
+	}
+
 	void Look()
 	{
-		std::size_t     leftOut = 0;
-		bool            folderUnread = false;
-		const auto      files = ReadManifests(leftOut, folderUnread);
-		const auto      read = FileText(kSwitches);
-		std::error_code ec;
-		// no file is every switch on; a file that is there and cannot be read is said so and never written over
-		const bool unread = !read && std::filesystem::exists(kSwitches, ec);
-		const auto switches = read.value_or(std::string{});
-		// an old version's plugin or files are looked for per part; no part is built in yet
-		auto survey =
-			std::make_shared<const SurveyText::Survey>(SurveyText::Look({ files, switches, kParts, VersionNow(), kFeatures, {}, unread, leftOut, folderUnread }));
-		if (survey->rows.empty()) {
-			SKSE::log::info("no mod that needs {} is installed: nothing runs", ManifestText::kCore);
-		}
-		for (const auto& row : survey->rows) {
-			SKSE::log::info("{} {}: {}", row.title, ManifestText::Shown(row.dataVersion),
-				row.state == SurveyText::State::kRuns ? "its part runs" : row.state == SurveyText::State::kSwitchedOff ? "switched off in Settings.ini" :
-																														 "stays off");
+		std::shared_ptr<const SurveyText::Survey> survey;
+		// a look that failed is said wherever a survey shows: an empty one would read as "nothing installed"
+		try {
+			survey = Surveyed();
+		} catch (const std::exception& e) {
+			SKSE::log::error("what is installed could not be worked out ({})", e.what());
+			survey = std::make_shared<const SurveyText::Survey>(SurveyText::Failed());
+		} catch (...) {
+			SKSE::log::error("what is installed could not be worked out (an unknown error)");
+			survey = std::make_shared<const SurveyText::Survey>(SurveyText::Failed());
 		}
 		for (const auto& problem : survey->problems) {
 			SKSE::log::error("{}", problem);

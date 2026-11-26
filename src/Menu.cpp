@@ -70,8 +70,8 @@ namespace Core
 			TextColored(kMuted, "%s", Fill(T("Illuminated - Core {}"), ManifestText::Shown(VersionNow())).c_str());
 			if (survey->rows.empty()) {
 				// nothing installed, or files that could not be used: the second is sent on to the page that says why
-				MenuStyle::Note(survey->problems.empty() ? T("No mod that needs Illuminated - Core is installed. Nothing runs.") :
-														   T("No mod's part runs. What was wrong when the game started is on the Problems found page."));
+				MenuStyle::Note(survey->filesFound ? T("No mod's part runs. What was wrong when the game started is on the Problems found page.") :
+													 T("No mod that needs Illuminated - Core is installed. Nothing runs."));
 				return;
 			}
 			int index = 0;

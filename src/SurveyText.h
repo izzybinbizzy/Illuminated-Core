@@ -91,6 +91,8 @@ namespace SurveyText
 		std::vector<std::pair<std::string_view, bool>> switches{};
 		// Settings.ini could not be read: a switch moved this session is kept for the session and not written
 		bool switchesUnread{ false };
+		// the Modules folder held a file, or could not be listed: with no row then, files were there and none could be used
+		bool filesFound{ false };
 	};
 
 	namespace Detail
@@ -196,6 +198,7 @@ namespace SurveyText
 			out.rows.push_back(std::move(row));
 		}
 		out.problems.insert(out.problems.end(), std::make_move_iterator(broken.begin()), std::make_move_iterator(broken.end()));
+		out.filesFound = !a_in.files.empty() || a_in.folderUnread || a_in.leftOut > 0;
 		if (a_in.folderUnread) {
 			out.problems.emplace_back(
 				"The Modules folder (SKSE\\Plugins\\IlluminatedCore\\Modules) could not be read to its end, so an installed mod may "
@@ -211,6 +214,17 @@ namespace SurveyText
 		for (const auto& problem : file.problems) {
 			out.problems.push_back(std::format("Settings.ini, {}.", problem));
 		}
+		return out;
+	}
+
+	// the survey kept when the look itself failed: no part runs, and one line says so wherever a survey is shown
+	[[nodiscard]] inline Survey Failed()
+	{
+		Survey out;
+		out.filesFound = true;
+		out.problems.emplace_back(
+			"What is installed could not be worked out when the game started, so no mod's part runs. IlluminatedCore.log names the "
+			"error. Start the game again.");
 		return out;
 	}
 
