@@ -9,6 +9,7 @@
 #include "HookDispatchChecks.h"
 #include "LifecycleChecks.h"
 #include "ManifestText.h"
+#include "ObjectRowsChecks.h"
 #include "SurveyText.h"
 #include "SwitchesText.h"
 
@@ -383,12 +384,14 @@ int main()
 	Twice();
 	Switches();
 	Surveys();
-	// the kernel's own check sets that live beside their subjects: the shared hook, the dimmer's keys, the composer, the moments
+	// the kernel's own check sets that live beside their subjects: the shared hook, the dimmer's keys, the composer, the moments,
+	// the object-light library
 	// each set against its own floor: a set cut short is caught even when another set ran more checks than it names
 	RunSet(HookDispatchChecks::Run, HookDispatchChecks::kCount, "the shared hook's checks ran the checks they name");
 	RunSet(DimmerKeysChecks::Run, DimmerKeysChecks::kCount, "the dimmer keys' checks ran the checks they name");
 	RunSet(ComposerChecks::Run, ComposerChecks::kCount, "the composer's checks ran the checks they name");
 	RunSet(LifecycleChecks::Run, LifecycleChecks::kCount, "the moments' checks ran the checks they name");
+	RunSet(ObjectRowsChecks::Run, ObjectRowsChecks::kCount, "the object-light library's checks ran the checks they name");
 	const int own = gChecks;
 	RunSet(RowParkChecks::Run, RowParkChecks::kCount, "the parking rule's checks ran the checks they name");
 	RunSet(NoteRingChecks::Run, NoteRingChecks::kCount, "the note ring's checks ran the checks they name");
