@@ -240,21 +240,6 @@ namespace SurveyText
 		return out;
 	}
 
-	// a page's or section's name as the menu framework takes it: a '/' parts two names of a path there, so one inside a name (a
-	// translation may hold one) is marked with a backslash, the framework's own way to keep it part of the name
-	[[nodiscard]] inline std::string MenuName(std::string_view a_name)
-	{
-		std::string out;
-		out.reserve(a_name.size() + 2);
-		for (const char c : a_name) {
-			if (c == '/') {
-				out += '\\';
-			}
-			out += c;
-		}
-		return out;
-	}
-
 	// the lines of a box may hold this many characters together: the game's message box has no scroll bar
 	inline constexpr std::size_t kBoxRoom = 600;
 

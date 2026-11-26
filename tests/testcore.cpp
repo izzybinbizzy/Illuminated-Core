@@ -343,8 +343,6 @@ namespace
 		CHECK(Failed().rows.empty() && Failed().filesFound && Failed().problems.size() == 1 && !BoxText(Failed()).empty());
 		// with no mod reached at all the box still says so
 		CHECK(!BoxText(Look({ {}, {}, kParts, kCoreNow, kFeatures, {}, false, 0, true })).empty());
-		// a name the menu framework takes: a slash inside it is marked, everything else is as it was
-		CHECK(MenuName("Problems found") == "Problems found" && MenuName("") == "" && MenuName("a/b / c") == "a\\/b \\/ c");
 		// the box holds its first line always and a further line only while the lines fit its room
 		Survey longOnes;
 		longOnes.problems.assign(5, std::string(250, 'x'));

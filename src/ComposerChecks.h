@@ -16,7 +16,7 @@ namespace ComposerChecks
 	using Check = void (*)(bool a_ok, const char* a_what, int a_line);
 
 	// the checks one Run makes (raise it when checks are added)
-	inline constexpr int kCount = 47;
+	inline constexpr int kCount = 49;
 
 // a check may hold a braced list with commas of its own
 #define CORE_CHECK(...) a_check((__VA_ARGS__), #__VA_ARGS__, __LINE__)
@@ -92,7 +92,19 @@ namespace ComposerChecks
 		CORE_CHECK(Product(odd) == (std::numeric_limits<float>::max)() && Due(odd));
 		odd.base = 1.0f;
 		odd.share[0] = nan;
-		CORE_CHECK(Product(odd) == 1.0f);
+		// a broken share written straight into the record is no say at all: the other shares still count
+		CORE_CHECK(Product(odd) == kMost);
+		// and a zero share beside it keeps the light dark
+		odd.share[static_cast<std::size_t>(Voice::kFading)] = 0.0f;
+		CORE_CHECK(Product(odd) == 0.0f);
+
+		// tiny and large shares together give the brightness they multiply to, in any order: nothing is lost on the way
+		Light wide;
+		wide.base = std::ldexp(1.0f, 127);
+		wide.share = { std::ldexp(1.0f, -75), std::ldexp(1.0f, -75), 16.0f, 16.0f, 16.0f, 16.0f, 16.0f };
+		Light turned = wide;
+		turned.share = { 16.0f, 16.0f, 16.0f, 16.0f, 16.0f, std::ldexp(1.0f, -75), std::ldexp(1.0f, -75) };
+		CORE_CHECK(Product(wide) == 0.125f && Product(turned) == 0.125f);
 
 		// a voice that does not exist changes nothing
 		Light same;

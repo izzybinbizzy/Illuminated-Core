@@ -11,6 +11,8 @@
 
 #include <atomic>
 #include <cstddef>
+#include <utility>
+#include <vector>
 
 namespace Core::Hooks
 {
@@ -18,6 +20,13 @@ namespace Core::Hooks
 	{
 		// how many places were written; counted on the main thread, read by DevBench on its own
 		std::atomic<std::size_t> gWritten{ 0 };
+
+		// every slot of the table, for what is done to all of them alike: a new slot is named here once
+		template <class F>
+		void ForEachSlot(F&& a_do)
+		{
+			a_do(gPlayerUpdate);
+		}
 	}
 
 	void Fault(const char* a_part, const char* a_slot) noexcept
@@ -49,5 +58,35 @@ namespace Core::Hooks
 	std::size_t WrittenCount() noexcept
 	{
 		return gWritten.load(std::memory_order_relaxed);
+	}
+
+	std::vector<Row> Rows()
+	{
+		std::vector<Row> rows;
+		ForEachSlot([&rows](const auto& a_slot) {
+			Row row{ a_slot.Name(), a_slot.Sealed(), a_slot.Metered(), {} };
+			// read on DevBench's thread: the handler lists only once the slot is sealed, when they are complete and never change
+			if (!row.written) {
+				rows.push_back(std::move(row));
+				return;
+			}
+			row.handlers.reserve(a_slot.Handlers());
+			for (std::size_t i = 0; i < a_slot.Handlers(); ++i) {
+				const auto seen = a_slot.At(i);
+				row.handlers.push_back({ seen.part, seen.before, seen.armed, seen.runs, seen.usAvg, seen.usMax });
+			}
+			rows.push_back(std::move(row));
+		});
+		return rows;
+	}
+
+	void Meter(bool a_on) noexcept
+	{
+		ForEachSlot([a_on](auto& a_slot) { a_slot.Meter(a_on); });
+	}
+
+	void ResetCounts() noexcept
+	{
+		ForEachSlot([](auto& a_slot) { a_slot.ResetCounts(); });
 	}
 }

@@ -68,22 +68,22 @@ namespace Composer
 	// the light's steady fade: its data's fade times every share, never negative, never past kMost times the data's fade
 	[[nodiscard]] constexpr float Product(const Light& a_light) noexcept
 	{
-		float all = 1.0f;
+		// each share cleaned as it is read (a share written past Set is held to the same rule), and the product worked out in
+		// double: seven shares of 0 to kMost cannot underflow or overflow there in any order, so a brightness a light can take is
+		// never lost on the way to it
+		double all = 1.0;
 		for (const float share : a_light.share) {
-			all *= share;
+			all *= static_cast<double>(Clean(share));
 		}
-		if (!(all >= 0.0f)) {
-			all = 1.0f;
-		}
-		if (all > kMost) {
-			all = kMost;
+		if (all > static_cast<double>(kMost)) {
+			all = static_cast<double>(kMost);
 		}
 		// a fade from a file may be anything: a negative, broken or endless one is no light at all
 		constexpr float kLargest = (std::numeric_limits<float>::max)();
 		const bool      usable = a_light.base >= 0.0f && a_light.base <= kLargest;
-		const float     product = (usable ? a_light.base : 0.0f) * all;
+		const double    product = (usable ? static_cast<double>(a_light.base) : 0.0) * all;
 		// a very large fade times its shares may leave the numbers a light can take
-		return product <= kLargest ? product : kLargest;
+		return product <= static_cast<double>(kLargest) ? static_cast<float>(product) : kLargest;
 	}
 
 	// whether the light has to be written: it got nothing yet, or its product moved visibly away from what it last got. Going to

@@ -8,6 +8,7 @@
 #include "HookDispatch.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <stdexcept>
 #include <string>
@@ -19,7 +20,7 @@ namespace HookDispatchChecks
 	using Check = void (*)(bool a_ok, const char* a_what, int a_line);
 
 	// the checks one Run makes (raise it when checks are added)
-	inline constexpr int kCount = 44;
+	inline constexpr int kCount = 48;
 
 	// what ran, in order: the stand-in for the game's function writes "game", each handler its own word
 	inline std::string gRan;
@@ -40,6 +41,14 @@ namespace HookDispatchChecks
 	{
 		gRan += "game ";
 		++*a_value;
+	}
+
+	// a handler's work that takes a known time: busy until 200 microseconds have gone by on the meter's own clock
+	inline void Spin()
+	{
+		const auto end = std::chrono::steady_clock::now() + std::chrono::microseconds(200);
+		while (std::chrono::steady_clock::now() < end) {
+		}
 	}
 
 	inline void Fault(const char* a_part, const char* a_slot) noexcept
@@ -199,6 +208,30 @@ namespace HookDispatchChecks
 		two.Seal(Fault);
 		shared.Arm();
 		CORE_CHECK(two.Call(Game, 3) == 7 && two.Call(Same, 3) == 4 && two.At(0).runs == 2);
+
+		// the meter. Off: a handler that runs is counted and never timed
+		static Slot<void, int*> timed("timed");
+		const auto              spinner = timed.AddBefore("p", [](int*) { Spin(); });
+		const auto              timedThrower = timed.AddAfter("q", [](int*) {
+			Spin();
+			throw std::runtime_error("after the work");
+		});
+		timed.Seal(Fault);
+		spinner.Arm();
+		int timedCalls = 0;
+		timed.Call(GameVoid, &timedCalls);
+		CORE_CHECK(!timed.Metered() && timed.At(0).runs == 1 && timed.At(0).usAvg == 0.0f && timed.At(0).usMax == 0.0f);
+		// on: each run's own time, the first run the average itself
+		timed.Meter(true);
+		timedThrower.Arm();
+		timed.Call(GameVoid, &timedCalls);
+		CORE_CHECK(timed.Metered() && timed.At(0).runs == 2 && timed.At(0).usAvg >= 200.0f && timed.At(0).usMax >= timed.At(0).usAvg);
+		// a handler that throws is timed and counted all the same, and the game's call ran both times
+		CORE_CHECK(timed.At(1).runs == 1 && timed.At(1).usMax >= 200.0f && timedCalls == 2);
+		// a reset clears the counts and the times, never the meter's switch or a handler's own
+		timed.ResetCounts();
+		CORE_CHECK(timed.At(0).runs == 0 && timed.At(0).usAvg == 0.0f && timed.At(1).runs == 0 && timed.At(1).usMax == 0.0f && timed.Metered() &&
+				   spinner.IsArmed());
 	}
 
 #undef CORE_CHECK

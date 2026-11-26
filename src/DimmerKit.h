@@ -109,10 +109,16 @@ namespace DimmerKit
 		if (!data || !data->keys || data->numKeys != a_keys.size()) {
 			return false;
 		}
+		// the same count is not the same keys: every key's time is compared before any value is written, so keys of another shape
+		// are never left half rewritten
 		for (std::uint32_t i = 0; i < data->numKeys; ++i) {
-			if (auto* key = data->keys->GetKeyAt(i, data->keySize)) {
-				key->SetValue(a_keys[i].value * a_fade);
+			const auto* key = data->keys->GetKeyAt(i, data->keySize);
+			if (!key || key->GetTime() != a_keys[i].time) {
+				return false;
 			}
+		}
+		for (std::uint32_t i = 0; i < data->numKeys; ++i) {
+			data->keys->GetKeyAt(i, data->keySize)->SetValue(a_keys[i].value * a_fade);
 		}
 		return true;
 	}

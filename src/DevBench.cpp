@@ -4,8 +4,10 @@
 //
 // DevBench, when it is in the load order (it is optional; nothing here runs without it):
 //   inspect kind=illuminatedcore   the core's version, the parts built in, every installed mod with its version and state, each
-//                                  part's switch for the next game start, and every problem line of this start
-//   illuminatedcore.control        action = switch (part + value: that part's switch, the way the menu's Installed page sets it)
+//                                  part's switch for the next game start, every problem line of this start, and the hook table:
+//                                  each handler's part, whether it is armed, how often it ran and what a run cost
+//   illuminatedcore.control        action = switch (part + value: that part's switch, the way the menu's Installed page sets it),
+//                                  meter (value 1 on, 0 off: the hook table times every handler that runs), resetcounts
 
 #include "Kernel.h"
 
@@ -24,10 +26,10 @@ namespace Core
 		constexpr const char* kKey = "illuminatedcore";
 
 		constexpr const char* kDescriptor =
-			R"json({"description":"Illuminated - Core (one plugin for every Illuminated mod): its version, the parts built into it, every installed mod's manifest with its data version and whether its part runs this session (runs, switched off, stays off), each part's switch for the next game start, every problem line found when the game started (the same lines as its message box, its Problems found page and IlluminatedCore.log), and how many game functions hold a hook of the core (hookRowsWritten: 0 while no part needs one). Read only.","inputSchema":{"type":"object","properties":{}},"readOnly":true})json";
+			R"json({"description":"Illuminated - Core (one plugin for every Illuminated mod): its version, the parts built into it, every installed mod's manifest with its data version and whether its part runs this session (runs, switched off, stays off), each part's switch for the next game start, every problem line found when the game started (the same lines as its message box, its Problems found page and IlluminatedCore.log), how many game functions hold a hook of the core (hookRowsWritten: 0 while no part needs one), and the hook table (hooks: per slot whether it is written and metered, and each handler in the order it runs with its part, when = before or after the game's own call, armed, runs since the last resetcounts, and usAvg / usMax in microseconds, both 0 until illuminatedcore.control action=meter switched the meter on). Read only.","inputSchema":{"type":"object","properties":{}},"readOnly":true})json";
 
 		constexpr const char* kTool =
-			R"json({"description":"Illuminated - Core: action=switch sets one part's switch the way the menu's Installed page does (part = its id as inspect kind=illuminatedcore lists it under parts, value 1 on or 0 off); it is saved to Settings.ini and takes hold from the next game start. The reply is every part's switch after the change. Read state with inspect kind=illuminatedcore.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["switch"]},"part":{"type":"string"},"value":{"type":"number"}},"required":["action","part","value"]}})json";
+			R"json({"description":"Illuminated - Core: action=switch sets one part's switch the way the menu's Installed page does (part = its id as inspect kind=illuminatedcore lists it under parts, value 1 on or 0 off); it is saved to Settings.ini and takes hold from the next game start; the reply is every part's switch after the change. action=meter (value 1 on or 0 off) has the hook table time every handler that runs: off, a running handler pays one read; a slot nobody armed never reaches the meter. action=resetcounts puts every handler's runs and times back to 0. Both reply with the hook table after the change. Read state with inspect kind=illuminatedcore.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["switch","meter","resetcounts"]},"part":{"type":"string"},"value":{"type":"number"}},"required":["action"]}})json";
 
 		[[nodiscard]] const char* StateName(SurveyText::State a_state)
 		{
@@ -51,6 +53,20 @@ namespace Core
 			return out;
 		}
 
+		[[nodiscard]] json HooksJson()
+		{
+			json out = json::array();
+			for (const auto& row : Hooks::Rows()) {
+				json handlers = json::array();
+				for (const auto& handler : row.handlers) {
+					handlers.push_back({ { "part", handler.part }, { "when", handler.before ? "before" : "after" }, { "armed", handler.armed },
+						{ "runs", handler.runs }, { "usAvg", handler.usAvg }, { "usMax", handler.usMax } });
+				}
+				out.push_back({ { "slot", row.slot }, { "written", row.written }, { "metered", row.metered }, { "handlers", std::move(handlers) } });
+			}
+			return out;
+		}
+
 		// the survey is made once at post-load and never changed after: read as it is, on DevBench's own thread
 		[[nodiscard]] json StateNow()
 		{
@@ -66,7 +82,7 @@ namespace Core
 			}
 			return json{ { "version", ManifestText::Shown(VersionNow()) }, { "parts", std::move(parts) }, { "installed", std::move(rows) },
 				{ "switchesNextStart", SwitchesJson() }, { "settingsFileUnread", survey->switchesUnread }, { "problems", survey->problems },
-				{ "hookRowsWritten", Hooks::WrittenCount() } };
+				{ "hookRowsWritten", Hooks::WrittenCount() }, { "hooks", HooksJson() } };
 		}
 
 		void Handler(void*, const char*, void* a_sink, DevBenchAPI::WriteFn a_write) noexcept
@@ -85,11 +101,22 @@ namespace Core
 		[[nodiscard]] json Act(const json& a_args)
 		{
 			const auto action = DevBenchGlue::Text(a_args, "action");
+			const auto value = DevBenchGlue::Number(a_args, "value");
+			if (action == "resetcounts") {
+				Hooks::ResetCounts();
+				return json{ { "ok", true }, { "hooks", HooksJson() } };
+			}
+			if (action == "meter") {
+				if (!value) {
+					return DevBenchGlue::Refusal("meter needs a number value: 1 on, 0 off");
+				}
+				Hooks::Meter(*value != 0.0);
+				return json{ { "ok", true }, { "hooks", HooksJson() } };
+			}
 			if (action != "switch") {
-				return DevBenchGlue::Refusal("unknown action '" + action + "'", json::array({ "switch" }));
+				return DevBenchGlue::Refusal("unknown action '" + action + "'", json::array({ "switch", "meter", "resetcounts" }));
 			}
 			const auto part = DevBenchGlue::Text(a_args, "part");
-			const auto value = DevBenchGlue::Number(a_args, "value");
 			if (!value) {
 				return DevBenchGlue::Refusal("switch needs a number value: 1 on, 0 off");
 			}

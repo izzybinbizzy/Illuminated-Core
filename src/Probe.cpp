@@ -25,7 +25,9 @@
 #	include <atomic>
 #	include <cstddef>
 #	include <cstdint>
+#	include <filesystem>
 #	include <string>
+#	include <system_error>
 
 namespace Core
 {
@@ -34,7 +36,7 @@ namespace Core
 		using DevBenchGlue::json;
 
 		constexpr const char* kTool =
-			R"json({"description":"Illuminated - Core, testing build only: tries the engine routes on the game's own lights. action=dimmer puts the game's light dimmer on the player's casting light of one hand (hand left or right; a spell must be drawn) and plays a pulse shape as baked keys (kind = healing, absorbhealth, absorbmagicka, absorbstamina, illusion, conjuration, alteration, magelight, ward or rune; depth = how wide it swings, 1 as shipped, more to overshoot). action=read gives that light's fade now. action=release stops the dimmer and puts the fade back. action=frames (no hand) tries the shared hook on the player's update: with count=N its handler counts N frames and switches itself off, without count it only reads - handlerRuns stands still while nothing is armed. Each reply is the state after the action, read on the main thread.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["dimmer","read","release","frames"]},"count":{"type":"number"},"hand":{"type":"string","enum":["left","right"]},"kind":{"type":"string"},"depth":{"type":"number"}},"required":["action"]}})json";
+			R"json({"description":"Illuminated - Core, testing build only: tries the engine routes on the game's own lights. action=dimmer puts the game's light dimmer on the player's casting light of one hand (hand left or right; a spell must be drawn) and plays a pulse shape as baked keys (kind = healing, absorbhealth, absorbmagicka, absorbstamina, illusion, conjuration, alteration, magelight, ward, rune, or one of the four played as a 12-second loop: fire, frost, shock, poison; depth = how wide it swings, 1 as shipped, more to overshoot). action=read gives that light's fade now. action=release stops the dimmer and puts the fade back. action=frames (no hand) tries the shared hook on the player's update, only in a start with the file Data/SKSE/Plugins/IlluminatedCore/Probe Frames.txt in place (else written is false and a note says so): with count=N its handler counts N frames and switches itself off, without count it only reads - handlerRuns stands still while nothing is armed. Each reply is the state after the action, read on the main thread.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["dimmer","read","release","frames"]},"count":{"type":"number"},"hand":{"type":"string","enum":["left","right"]},"kind":{"type":"string"},"depth":{"type":"number"}},"required":["action"]}})json";
 
 		// one hand's trial: the light the dimmer was put on, the dimmer, and the fade the light had before
 		struct Trial
@@ -46,6 +48,10 @@ namespace Core
 
 		// main thread only
 		std::array<Trial, 2> gTrials{};
+
+		// the frames trial writes a hook on the player's update for the whole session, so even the testing build writes it only
+		// when a test asks for it at the start, with this file
+		constexpr const char* kFramesOn = "Data/SKSE/Plugins/IlluminatedCore/Probe Frames.txt";
 
 		// the hook table's own trial: a handler on the player's update that counts a given number of frames and switches itself
 		// off. Its runs before, during and after show the idle rule: a handler nobody armed is never called
@@ -61,12 +67,18 @@ namespace Core
 			}
 		}
 
+		// main thread, where the table is written: what the trial stands at
 		[[nodiscard]] json FramesSeen()
 		{
 			const auto seen = Hooks::gPlayerUpdate.Handlers() > 0 ? Hooks::gPlayerUpdate.At(0) : decltype(Hooks::gPlayerUpdate.At(0)){};
-			return json{ { "ok", true }, { "written", Hooks::gPlayerUpdate.Sealed() }, { "armed", gFrames.IsArmed() },
+			json       out{ { "ok", true }, { "written", Hooks::gPlayerUpdate.Sealed() }, { "armed", gFrames.IsArmed() },
 				{ "framesCounted", gFramesSeen.load(std::memory_order_relaxed) }, { "handlerRuns", seen.runs },
 				{ "framesLeft", gFramesLeft.load(std::memory_order_relaxed) } };
+			if (!gFrames) {
+				out["note"] = std::string("the frames trial is off in this start: no hook is written for it. Put the file ") + kFramesOn +
+				              " in place and start the game again";
+			}
+			return out;
 		}
 
 		// the casting light the game made for that hand, or nothing (no spell drawn, or the light is not made yet). Main thread
@@ -109,12 +121,18 @@ namespace Core
 		{
 			const auto action = DevBenchGlue::Text(a_args, "action");
 			if (action == "frames") {
-				// count = how many frames the handler counts before it switches itself off; none given only reads
-				if (const auto count = DevBenchGlue::Number(a_args, "count"); count && *count >= 1.0) {
-					gFramesLeft.store(static_cast<std::int32_t>(std::clamp(*count, 1.0, 100000.0)), std::memory_order_relaxed);
-					gFrames.Arm();
-				}
-				return FramesSeen();
+				// count = how many frames the handler counts before it switches itself off; none given only reads. The count is set and
+				// the handler armed on the main thread, where it counts, so a request never crosses a handler switching itself off
+				const auto         count = DevBenchGlue::Number(a_args, "count");
+				const std::int32_t frames = count && *count >= 1.0 ? static_cast<std::int32_t>(std::clamp(*count, 1.0, 100000.0)) : 0;
+				const auto         now = DevBenchGlue::OnMainThread([frames]() {
+					if (frames > 0 && gFrames) {
+						gFramesLeft.store(frames, std::memory_order_relaxed);
+						gFrames.Arm();
+					}
+					return FramesSeen();
+				});
+				return now ? *now : DevBenchGlue::NotRunYet();
 			}
 			const auto hand = DevBenchGlue::Text(a_args, "hand");
 			if (hand != "left" && hand != "right") {
@@ -138,8 +156,9 @@ namespace Core
 			const auto kind = Pulse::KindOf(DevBenchGlue::Text(a_args, "kind"));
 			const auto depth = DevBenchGlue::Number(a_args, "depth").value_or(1.0);
 			if (!kind || !(DimmerKeys::Period(*kind) > 0.0)) {
-				return DevBenchGlue::Refusal("kind names no pulse shape that repeats",
-					json::array({ "healing", "absorbhealth", "absorbmagicka", "absorbstamina", "illusion", "conjuration", "alteration", "magelight", "ward", "rune" }));
+				return DevBenchGlue::Refusal("kind names no pulse shape",
+					json::array({ "healing", "absorbhealth", "absorbmagicka", "absorbstamina", "illusion", "conjuration", "alteration", "magelight", "ward", "rune",
+						"fire", "frost", "shock", "poison" }));
 			}
 			const auto loop = DimmerKeys::Bake(*kind, 1, static_cast<float>(std::clamp(depth, 0.1, 20.0)), 0.0);
 			if (!loop) {
@@ -182,10 +201,17 @@ namespace Core
 		}
 	}
 
-	// before the post-load rows are written: the test part's one handler, so the player's update row has a reason to be written
+	// before the post-load rows are written: the test part's one handler, so the player's update row has a reason to be written -
+	// only when the test asked for the frames trial with its file
 	void ProbeHooks()
 	{
+		std::error_code ec;
+		if (!std::filesystem::exists(kFramesOn, ec)) {
+			SKSE::log::info("[DEVBENCH] TESTING BUILD: the frames trial is off ({} is not there): no hook is written for it", kFramesOn);
+			return;
+		}
 		gFrames = Hooks::gPlayerUpdate.AddAfter("the test part", CountFrame);
+		SKSE::log::info("[DEVBENCH] TESTING BUILD: the frames trial is on ({}): its hook on the player's update is written", kFramesOn);
 	}
 
 	// a save is about to load or a new game starts: the lights of the session before go with it, and so does every trial on them

@@ -18,7 +18,7 @@ namespace DimmerKeysChecks
 	using Check = void (*)(bool a_ok, const char* a_what, int a_line);
 
 	// the checks one Run makes (raise it when checks are added)
-	inline constexpr int kCount = 1250;
+	inline constexpr int kCount = 1828;
 
 // a check may hold a braced list with commas of its own
 #define CORE_CHECK(...) a_check((__VA_ARGS__), #__VA_ARGS__, __LINE__)
@@ -29,12 +29,10 @@ namespace DimmerKeysChecks
 		using Pulse::Kind;
 		constexpr std::array kLooping{ Kind::kHealing, Kind::kAbsorbHealth, Kind::kAbsorbMagicka, Kind::kAbsorbStamina, Kind::kIllusion,
 			Kind::kConjuration, Kind::kAlteration, Kind::kMagelight, Kind::kWard, Kind::kRune };
-		constexpr std::array kEndless{ Kind::kNone, Kind::kFire, Kind::kFrost, Kind::kShock, Kind::kPoison };
+		constexpr std::array kNoise{ Kind::kFire, Kind::kFrost, Kind::kShock, Kind::kPoison };
 
-		// a shape that never repeats, a light that does not pulse and a broken clock give no loop
-		for (const auto kind : kEndless) {
-			CORE_CHECK(Period(kind) == 0.0 && !Bake(kind, 7, 1.0f, 0.0).has_value());
-		}
+		// a light that does not pulse and a broken clock give no loop
+		CORE_CHECK(Period(Kind::kNone) == 0.0 && !IsNoise(Kind::kNone) && !Bake(Kind::kNone, 7, 1.0f, 0.0).has_value());
 		CORE_CHECK(!Bake(Kind::kHealing, 7, 0.0f, 0.0).has_value() && !Bake(Kind::kHealing, 7, -1.0f, 0.0).has_value());
 		CORE_CHECK(!Bake(Kind::kHealing, 7, 1.0f, std::nan("")).has_value());
 
@@ -79,11 +77,68 @@ namespace DimmerKeysChecks
 							off = (std::max)(off, static_cast<double>(std::abs(At(*loop, t) - Pulse::Factor(kind, start + t, seed, depth))));
 						}
 						worst = (std::max)(worst, off);
-						CORE_CHECK(off <= 2.5 * kTolerance);
+						CORE_CHECK(off <= kTolerance);
 					}
 				}
 			}
 		}
+		// a heartbeat whose peak falls inside the first piece, a few hundredths of a millisecond in (CodeRabbit's case on pull request 1):
+		// read finely across that piece, the loop stays within the tolerance there too
+		const auto beat = Bake(Kind::kAbsorbHealth, 1, 1.0f, 1.0597 - Pulse::Unit(1, 0x51ED));
+		double     beatOff = beat ? 0.0 : 1.0;
+		for (int i = 0; beat && i <= 20000; ++i) {
+			const double t = 0.1 * i / 20000.0;
+			beatOff = (std::max)(beatOff,
+				static_cast<double>(std::abs(At(*beat, t) - Pulse::Factor(Kind::kAbsorbHealth, 1.0597 - Pulse::Unit(1, 0x51ED) + t, 1, 1.0f))));
+		}
+		CORE_CHECK(beatOff <= kTolerance);
+
+		// the four shapes that never repeat play a loop of 12 seconds (his checklist 927), Creatures' way
+		for (const auto kind : kNoise) {
+			CORE_CHECK(IsNoise(kind) && Period(kind) == kNoiseLoop);
+			for (const std::uint32_t seed : { 1u, 77u, 0xDEADBEEFu, 0u }) {
+				for (const double start : { 0.0, 123.456, 86400.25 }) {
+					for (const float depth : { 1.0f, 0.5f }) {
+						const auto loop = Bake(kind, seed, depth, start);
+						CORE_CHECK(loop.has_value());
+						if (!loop) {
+							continue;
+						}
+						const auto& keys = loop->keys;
+						// a key every thirtieth of a second over the whole loop, the first at 0, the last at its end
+						CORE_CHECK(keys.size() == 361 && keys.front().time == 0.0f && keys.back().time == loop->period);
+						CORE_CHECK(keys.back().value == keys.front().value && loop->period == static_cast<float>(kNoiseLoop));
+						bool rising = true;
+						bool inRange = true;
+						for (std::size_t i = 0; i < keys.size(); ++i) {
+							rising = rising && (i == 0 || keys[i].time > keys[i - 1].time);
+							inRange = inRange && keys[i].value >= 0.05f && keys[i].value <= 2.0f;
+						}
+						CORE_CHECK(rising && inRange);
+						// before the seam every key is the shape itself at its moment
+						double off = 0.0;
+						for (std::size_t i = 0; i < keys.size(); ++i) {
+							const double t = kNoiseLoop * static_cast<double>(i) / static_cast<double>(keys.size() - 1);
+							if (t < kNoiseLoop - kSeam) {
+								off = (std::max)(off, static_cast<double>(std::abs(keys[i].value - Pulse::Factor(kind, start + t, seed, depth))));
+							}
+						}
+						CORE_CHECK(off < 1e-5);
+						// every turn of the loop plays the same
+						CORE_CHECK(std::abs(At(*loop, 1.234) - At(*loop, 1.234 + kNoiseLoop)) < 1e-5f &&
+								   std::abs(At(*loop, 7.77) - At(*loop, 7.77 + 3.0 * kNoiseLoop)) < 1e-5f);
+					}
+				}
+			}
+		}
+		// two fire lights do not flicker together
+		const auto fireOne = Bake(Kind::kFire, 1, 1.0f, 0.0);
+		const auto fireTwo = Bake(Kind::kFire, 2, 1.0f, 0.0);
+		double     fireApart = 0.0;
+		for (int i = 0; fireOne && fireTwo && i < 120; ++i) {
+			fireApart = (std::max)(fireApart, static_cast<double>(std::abs(At(*fireOne, i * 0.1) - At(*fireTwo, i * 0.1))));
+		}
+		CORE_CHECK(fireApart > 0.01);
 		// each light keeps its own place in the shape: two seeds of one kind do not move together
 		const auto one = Bake(Kind::kHealing, 1, 1.0f, 0.0);
 		const auto two = Bake(Kind::kHealing, 2, 1.0f, 0.0);

@@ -14,6 +14,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace Core::Hooks
 {
@@ -42,6 +43,29 @@ namespace Core::Hooks
 	void WriteAtPostLoad();
 	// how many places hold a thunk of the core; any thread. 0 while no part asked for a slot
 	[[nodiscard]] std::size_t WrittenCount() noexcept;
+
+	// for DevBench: the table as it stands - each slot, its handlers in the order they run, how often each ran and, while the
+	// meter was on, what a run cost in microseconds. Any thread
+	struct HandlerSeen
+	{
+		const char*   part{ "" };
+		bool          before{ false };
+		bool          armed{ false };
+		std::uint32_t runs{ 0 };
+		float         usAvg{ 0.0f };
+		float         usMax{ 0.0f };
+	};
+	struct Row
+	{
+		const char*              slot{ "" };
+		bool                     written{ false };
+		bool                     metered{ false };
+		std::vector<HandlerSeen> handlers;
+	};
+	[[nodiscard]] std::vector<Row> Rows();
+	// every slot's meter on or off, and every handler's count and times back to nothing. Any thread
+	void Meter(bool a_on) noexcept;
+	void ResetCounts() noexcept;
 
 	// a slot's thunk into one class's vtable. False, with nothing written, when no awake part asked for the slot or the place is
 	// written already. Main thread, at the slot's install moment

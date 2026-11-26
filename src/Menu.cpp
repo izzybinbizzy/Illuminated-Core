@@ -31,6 +31,7 @@
 #include "Translation.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <format>
 #include <string_view>
 #include <utility>
@@ -45,6 +46,10 @@ namespace Core
 		using Translation::Fill;
 		using Translation::T;
 		namespace Icon = MenuStyle::Icon;
+
+		// the core's own pages wear Illuminated's candle gold (his checklist 925); each mod's folder will set its own accent at the
+		// top of its pages, so the core's is set again at the top of each of its own
+		constexpr std::uint32_t kCandleGold = 0xFFC94D;
 
 		// a part's state this session, in the page's words
 		[[nodiscard]] const char* StateWords(SurveyText::State a_state)
@@ -62,6 +67,7 @@ namespace Core
 
 		void RenderInstalled()
 		{
+			MenuStyle::gTheme = MenuStyle::MakeTheme(kCandleGold);
 			MenuStyle::Page page;
 			const auto      survey = SurveyNow();
 			const auto      switches = SwitchesNow();
@@ -103,6 +109,7 @@ namespace Core
 
 		void RenderProblems()
 		{
+			MenuStyle::gTheme = MenuStyle::MakeTheme(kCandleGold);
 			MenuStyle::Page page;
 			const auto      survey = SurveyNow();
 
@@ -140,9 +147,9 @@ namespace Core
 			SKSE::log::warn("SKSE Menu Framework is not installed or did not load, so there is no menu; Settings.ini still applies");
 			return;
 		}
-		SKSEMenuFramework::SetSection(SurveyText::MenuName(T("Illuminated - Core")));
-		SKSEMenuFramework::AddSectionItem(SurveyText::MenuName(T("Installed")), Installed);
-		SKSEMenuFramework::AddSectionItem(SurveyText::MenuName(T("Problems found")), Problems);
+		SKSEMenuFramework::SetSection(Translation::MenuName("Illuminated - Core"));
+		SKSEMenuFramework::AddSectionItem(Translation::MenuName("Installed"), Installed);
+		SKSEMenuFramework::AddSectionItem(Translation::MenuName("Problems found"), Problems);
 		SKSE::log::info("menu: the section Illuminated - Core added to SKSE Menu Framework {}", SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 }
