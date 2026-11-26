@@ -1,0 +1,79 @@
+// Illuminated - Core - SKSE plugin
+// Copyright (C) 2026 izzydoingit
+// GPL-3.0-or-later; see the LICENSE file.
+//
+// What the kernel's files share. Each block names the file that defines it.
+
+#pragma once
+
+#include "SurveyText.h"
+
+#include <atomic>
+#include <exception>
+#include <memory>
+#include <span>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace Core
+{
+	// Runs a_work and lets no exception out: inside a game callback, a menu draw or a task one would end the game. The first
+	// failure at each place is logged, later ones there are skipped quietly.
+	template <class F>
+	inline void Guarded(const char* a_where, F&& a_work) noexcept
+	{
+		static std::atomic<bool> told{ false };
+		try {
+			std::forward<F>(a_work)();
+		} catch (const std::exception& e) {
+			if (!told.exchange(true)) {
+				// the log line itself may throw (low memory): never out of a noexcept function
+				try {
+					SKSE::log::error("{}: stopped by an error ({}); later ones here are skipped quietly", a_where, e.what());
+				} catch (...) {
+				}
+			}
+		} catch (...) {
+			if (!told.exchange(true)) {
+				try {
+					SKSE::log::error("{}: stopped by an unknown error; later ones here are skipped quietly", a_where);
+				} catch (...) {
+				}
+			}
+		}
+	}
+
+	// a_job on the game's main thread at the next chance (SKSE's task interface); false when it could not be queued
+	template <class F>
+	[[nodiscard]] bool Later(const char* a_where, F&& a_job) noexcept
+	{
+		try {
+			if (auto* tasks = SKSE::GetTaskInterface()) {
+				tasks->AddTask([a_where, job = std::forward<F>(a_job)]() { Guarded(a_where, job); });
+				return true;
+			}
+		} catch (...) {
+		}
+		return false;
+	}
+
+	// ------------------------------------------------------------------ Kernel.cpp: what is installed, and each part's switch
+	// the version the DLL declares (xmake.lua set_version), never a typed number
+	[[nodiscard]] ManifestText::Version VersionNow();
+	// the parts built into this version, in the order they wake
+	[[nodiscard]] std::span<const ManifestText::Known> Parts();
+	// data load, main thread, once: the manifests and the switches file read, each line logged, the one box of this start shown
+	void LookAtData();
+	// what LookAtData found; any thread, never null (empty before data load)
+	[[nodiscard]] std::shared_ptr<const SurveyText::Survey> SurveyNow();
+	// every part with its switch for the next game start; any thread
+	[[nodiscard]] std::vector<std::pair<std::string_view, bool>> SwitchesNow();
+	// a part's switch for the next game start: kept at once, written to Settings.ini by one main-thread task. Any thread; false for a
+	// part this core does not have
+	bool SetSwitch(std::string_view a_part, bool a_on);
+
+	// ------------------------------------------------------------------ Menu.cpp / DevBench.cpp
+	void RegisterMenu();
+	void OfferToDevBench();
+}
