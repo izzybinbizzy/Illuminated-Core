@@ -11,10 +11,17 @@
 // THE FILES, AND WHAT EACH ONE IS FOR
 //   main.cpp         this file - the start, the wrong-game guard, and the order of the work at each SKSE message
 //   Kernel.h         what the files share; PCH.h what every file includes
-//   Kernel.cpp       what is installed: the manifests and the switches file read at data load, a switch written back
+//   Kernel.cpp       what is installed: the manifests and the switches file read at post-load, a switch written back, and each
+//                    moment of the session handed to the parts that are awake
 //   ManifestText.h   game-free: a data mod's manifest as text, and whether this core runs it
 //   SwitchesText.h   game-free: Settings.ini, one switch per part
 //   SurveyText.h     game-free: every installed mod's state and every line a player is told, from those two
+//   Lifecycle.h      game-free: the moments of a session and a part's work at each
+//   HookDispatch.h   game-free: one hook on a game function shared by every part, a handler's own armed bit
+//   Hooks.h, HookTable.cpp  the hook table's game side: a slot's one thunk, written only when a part asked for it
+//   DimmerKeys.h     game-free: a light's pulse baked into keys the game's own dimmer plays     DimmerKit.h  the game's dimmer
+//   Composer.h       game-free: one light's brightness as one product, written only when it changes
+//   Probe.cpp        the test part, in the testing build only: DevBench tries the engine routes on the game's own lights
 //   Menu.cpp         the SKSE Menu Framework section     DevBench.cpp  DevBench's inspect and control (optional)
 //   SKSEMenuFramework.h, DevBenchAPI.*  those mods' own files; the other shared files (master: Tools\Shared Plugin Code)
 //                    are named in THIRD-PARTY NOTICES and the README
@@ -22,6 +29,7 @@
 
 #include "Kernel.h"
 
+#include "Hooks.h"
 #include "RuntimeGuard.h"
 #include "Translation.h"
 
@@ -29,15 +37,49 @@ namespace
 {
 	void Handle(SKSE::MessagingInterface::Message* a_message)
 	{
+		using Lifecycle::Moment;
 		switch (a_message->type) {
 		case SKSE::MessagingInterface::kPostLoad:
-			Core::OfferToDevBench();
+			// each step guarded alone: a throw in one still leaves the others done
+			// first of all: which parts are awake decides every hook written below
+			Core::Guarded("the survey at post-load", []() { Core::Look(); });
+			Core::Guarded("DevBench", []() { Core::OfferToDevBench(); });
+#ifdef CORE_PROBE
+			Core::Guarded("the test part", []() {
+				Core::ProbeHooks();
+				Core::OfferProbe();
+			});
+#endif
+			// each awake part adds its handlers to the slots it needs, then the rows that have a handler are written
+			Core::Tell(Moment::kPostLoad, true);
+			// every other plugin's load call is done: a row written now lands outside a hook another author wrote at load
+			Core::Guarded("the hooks of post-load", []() { Core::Hooks::WriteAtPostLoad(); });
 			break;
 		case SKSE::MessagingInterface::kDataLoaded:
-			// each step guarded alone: a throw in one still leaves the others done (the menu shows what the survey found)
-			Core::Guarded("the survey at data load", []() { Core::LookAtData(); });
+			Core::Guarded("the box at data load", []() { Core::TellPlayer(); });
 			Core::Guarded("the translation file", []() { SKSE::log::info("{}", Translation::Load("IlluminatedCore")); });
 			Core::Guarded("the menu section", []() { Core::RegisterMenu(); });
+			Core::Tell(Moment::kDataLoad, true);
+			// what has to see every other plugin's data-load work runs one main-thread task later; no task with no part awake
+			if (Core::AnyAwake() && !Core::Later("after every plugin's data load", []() { Core::Tell(Moment::kAfterAllPlugins, true); })) {
+				SKSE::log::warn("the moment after every plugin's data load could not be queued: the parts' work there did not run");
+			}
+			break;
+		case SKSE::MessagingInterface::kPreLoadGame:
+#ifdef CORE_PROBE
+			Core::Guarded("the test part's trials", []() { Core::ProbeForget(); });
+#endif
+			Core::Tell(Moment::kPreLoadGame, true);
+			break;
+		case SKSE::MessagingInterface::kNewGame:
+#ifdef CORE_PROBE
+			Core::Guarded("the test part's trials", []() { Core::ProbeForget(); });
+#endif
+			Core::Tell(Moment::kNewGame, true);
+			break;
+		case SKSE::MessagingInterface::kPostLoadGame:
+			// SKSE hands the save's own verdict in the message's data: nothing there is a load that failed
+			Core::Tell(Moment::kPostLoadGame, a_message->data != nullptr);
 			break;
 		default:
 			break;

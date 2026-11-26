@@ -69,7 +69,9 @@ namespace Core
 			Header(Icon::kList, T("Installed"));
 			TextColored(kMuted, "%s", Fill(T("Illuminated - Core {}"), ManifestText::Shown(VersionNow())).c_str());
 			if (survey->rows.empty()) {
-				MenuStyle::Note(T("No mod that needs Illuminated - Core is installed. Nothing runs."));
+				// nothing installed, or files that could not be used: the second is sent on to the page that says why
+				MenuStyle::Note(survey->problems.empty() ? T("No mod that needs Illuminated - Core is installed. Nothing runs.") :
+														   T("No mod's part runs. What was wrong when the game started is on the Problems found page."));
 				return;
 			}
 			int index = 0;
@@ -133,13 +135,14 @@ namespace Core
 
 	void RegisterMenu()
 	{
-		if (!SKSEMenuFramework::IsInstalled()) {
-			SKSE::log::warn("SKSE Menu Framework is not installed, so there is no menu; Settings.ini still applies");
+		// its file being there is not enough: a framework that did not load takes every registration and does nothing with it
+		if (!SKSEMenuFramework::IsInstalled() || !GetMenuFrameworkModule()) {
+			SKSE::log::warn("SKSE Menu Framework is not installed or did not load, so there is no menu; Settings.ini still applies");
 			return;
 		}
-		SKSEMenuFramework::SetSection(T("Illuminated - Core"));
-		SKSEMenuFramework::AddSectionItem(T("Installed"), Installed);
-		SKSEMenuFramework::AddSectionItem(T("Problems found"), Problems);
+		SKSEMenuFramework::SetSection(SurveyText::MenuName(T("Illuminated - Core")));
+		SKSEMenuFramework::AddSectionItem(SurveyText::MenuName(T("Installed")), Installed);
+		SKSEMenuFramework::AddSectionItem(SurveyText::MenuName(T("Problems found")), Problems);
 		SKSE::log::info("menu: the section Illuminated - Core added to SKSE Menu Framework {}", SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 }

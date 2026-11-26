@@ -10,6 +10,7 @@
 #include "Kernel.h"
 
 #include "DevBenchGlue.h"
+#include "Hooks.h"
 
 #include <string>
 #include <utility>
@@ -23,7 +24,7 @@ namespace Core
 		constexpr const char* kKey = "illuminatedcore";
 
 		constexpr const char* kDescriptor =
-			R"json({"description":"Illuminated - Core (one plugin for every Illuminated mod): its version, the parts built into it, every installed mod's manifest with its data version and whether its part runs this session (runs, switched off, stays off), each part's switch for the next game start, and every problem line found when the game started (the same lines as its message box, its Problems found page and IlluminatedCore.log). Read only.","inputSchema":{"type":"object","properties":{}},"readOnly":true})json";
+			R"json({"description":"Illuminated - Core (one plugin for every Illuminated mod): its version, the parts built into it, every installed mod's manifest with its data version and whether its part runs this session (runs, switched off, stays off), each part's switch for the next game start, every problem line found when the game started (the same lines as its message box, its Problems found page and IlluminatedCore.log), and how many game functions hold a hook of the core (hookRowsWritten: 0 while no part needs one). Read only.","inputSchema":{"type":"object","properties":{}},"readOnly":true})json";
 
 		constexpr const char* kTool =
 			R"json({"description":"Illuminated - Core: action=switch sets one part's switch the way the menu's Installed page does (part = its id as inspect kind=illuminatedcore lists it under parts, value 1 on or 0 off); it is saved to Settings.ini and takes hold from the next game start. The reply is every part's switch after the change. Read state with inspect kind=illuminatedcore.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["switch"]},"part":{"type":"string"},"value":{"type":"number"}},"required":["action","part","value"]}})json";
@@ -50,7 +51,7 @@ namespace Core
 			return out;
 		}
 
-		// the survey is made once at data load and never changed after: read as it is, on DevBench's own thread
+		// the survey is made once at post-load and never changed after: read as it is, on DevBench's own thread
 		[[nodiscard]] json StateNow()
 		{
 			const auto survey = SurveyNow();
@@ -64,7 +65,8 @@ namespace Core
 					{ "state", StateName(row.state) }, { "known", row.known }, { "namedTwice", row.twice } });
 			}
 			return json{ { "version", ManifestText::Shown(VersionNow()) }, { "parts", std::move(parts) }, { "installed", std::move(rows) },
-				{ "switchesNextStart", SwitchesJson() }, { "settingsFileUnread", survey->switchesUnread }, { "problems", survey->problems } };
+				{ "switchesNextStart", SwitchesJson() }, { "settingsFileUnread", survey->switchesUnread }, { "problems", survey->problems },
+				{ "hookRowsWritten", Hooks::WrittenCount() } };
 		}
 
 		void Handler(void*, const char*, void* a_sink, DevBenchAPI::WriteFn a_write) noexcept

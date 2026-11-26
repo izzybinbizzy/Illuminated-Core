@@ -38,6 +38,11 @@ target("Illuminated", function()
     add_files("src/*.cpp")
     add_headerfiles("src/*.h")
     add_includedirs("src")
+    -- GLOW_FADE_DEBUG=1 (set by PC Runner\pluginbuild.py for a testing build) adds the kernel's test part (src/Probe.cpp): a DevBench
+    -- tool that tries the engine routes on the game's own lights. It is in no shipped DLL.
+    if os.getenv("GLOW_FADE_DEBUG") == "1" then
+        add_defines("CORE_PROBE")
+    end
     set_pcxxheader("src/PCH.h")
     -- every warning in OUR files is an error
     set_warnings("allextra", "error")

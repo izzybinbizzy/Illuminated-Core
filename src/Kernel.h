@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "Lifecycle.h"
 #include "SurveyText.h"
 
 #include <atomic>
@@ -63,9 +64,19 @@ namespace Core
 	[[nodiscard]] ManifestText::Version VersionNow();
 	// the parts built into this version, in the order they wake
 	[[nodiscard]] std::span<const ManifestText::Known> Parts();
-	// data load, main thread, once: the manifests and the switches file read, each line logged, the one box of this start shown
-	void LookAtData();
-	// what LookAtData found; any thread, never null (empty before data load)
+	// post-load, main thread, once, before any hook of a part is written: the manifests and the switches file read, each line
+	// logged. Files only - nothing of the game's data is needed, and the hooks of that moment must know which parts are awake
+	void Look();
+	// data load, main thread, once: the one box of this start, when Look found something to say
+	void TellPlayer();
+	// whether a part runs this session; any thread, false before Look
+	[[nodiscard]] bool IsAwake(std::string_view a_part);
+	// whether any part runs this session; any thread
+	[[nodiscard]] bool AnyAwake();
+	// a moment of the session handed to every awake part, in the parts' order (Lifecycle.h); a_ok is the save's own verdict after
+	// a load and true otherwise. Main thread. With no part awake it does nothing
+	void Tell(Lifecycle::Moment a_moment, bool a_ok);
+	// what Look found; any thread, never null (empty before post-load)
 	[[nodiscard]] std::shared_ptr<const SurveyText::Survey> SurveyNow();
 	// every part with its switch for the next game start; any thread
 	[[nodiscard]] std::vector<std::pair<std::string_view, bool>> SwitchesNow();
@@ -76,4 +87,12 @@ namespace Core
 	// ------------------------------------------------------------------ Menu.cpp / DevBench.cpp
 	void RegisterMenu();
 	void OfferToDevBench();
+
+#ifdef CORE_PROBE
+	// ------------------------------------------------------------------ Probe.cpp: the test part, in the testing build only
+	void ProbeHooks();
+	void OfferProbe();
+	// before a save loads and at a new game, main thread: every trial let go
+	void ProbeForget();
+#endif
 }

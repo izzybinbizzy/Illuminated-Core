@@ -1,0 +1,66 @@
+// Illuminated - Core - SKSE plugin
+// Copyright (C) 2026 izzydoingit
+// GPL-3.0-or-later; see the LICENSE file.
+//
+// The hook table's game side: a slot's one thunk written into a class's vtable or over a call site, and only when some awake part
+// asked for that slot (HookDispatch.h holds the handlers and the armed word; nothing of the game is in it). Each place a slot is
+// written keeps its own copy of the game's function there, so one handler list serves a character's and the player's vtable alike.
+// DRAFT: not compiled yet - a template is only checked once a row uses it, and the first rows come with the kernel's test part.
+
+#pragma once
+
+#include "HookDispatch.h"
+#include "Kernel.h"
+
+#include <cstddef>
+#include <cstdint>
+
+namespace Core::Hooks
+{
+	// one place a slot is written. Place tells two places of one slot apart (the vtables of two classes, two call sites)
+	template <auto* Slot, std::size_t Place>
+	struct Thunk;
+
+	template <class R, class... A, HookDispatch::Slot<R, A...>* Slot, std::size_t Place>
+	struct Thunk<Slot, Place>
+	{
+		using Original = R (*)(A...);
+
+		static inline Original original{ nullptr };
+
+		static R Call(A... a_args) { return Slot->Call(original, a_args...); }
+	};
+
+	// ------------------------------------------------------------------ HookTable.cpp: the rows
+	// the slots a part may add a handler to, each before the moment its row is written
+	inline HookDispatch::Slot<void, RE::PlayerCharacter*, float> gPlayerUpdate{ "the player's update" };
+
+	// a handler let an exception out (one log line per handler), and a place was written (logged, counted for DevBench)
+	void Fault(const char* a_part, const char* a_slot) noexcept;
+	void Wrote(const char* a_slot, const char* a_where) noexcept;
+	// the rows of the post-load moment, each written only when its slot has a handler. Main thread
+	void WriteAtPostLoad();
+	// how many places hold a thunk of the core; any thread. 0 while no part asked for a slot
+	[[nodiscard]] std::size_t WrittenCount() noexcept;
+
+	// a slot's thunk into one class's vtable. False, with nothing written, when no awake part asked for the slot or the place is
+	// written already. Main thread, at the slot's install moment
+	template <auto* Slot, std::size_t Place>
+	bool WriteVTable(REL::VariantID a_table, std::size_t a_index, const char* a_class)
+	{
+		using Mine = Thunk<Slot, Place>;
+		if (!Slot->Wanted() || Mine::original) {
+			return false;
+		}
+		if (!Slot->Sealed()) {
+			Slot->Seal(Fault);
+		}
+		REL::Relocation<std::uintptr_t> table{ a_table };
+		// the game's function is read out before the thunk goes in: a call arriving the moment the entry is written already has it
+		const auto entry = reinterpret_cast<std::uintptr_t*>(table.address() + a_index * sizeof(std::uintptr_t));
+		Mine::original = reinterpret_cast<typename Mine::Original>(*entry);
+		table.write_vfunc(a_index, Mine::Call);
+		Wrote(Slot->Name(), a_class);
+		return true;
+	}
+}

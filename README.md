@@ -6,13 +6,16 @@ One plugin for every Illuminated mod. Each mod's own download carries its data a
 manifest names runs only while that mod is installed.
 
 ## Where it stands
-The kernel only. It loads, reads the manifests and its own settings file, shows its menu section and answers DevBench. No mod's
+The kernel only. It loads, reads the manifests and its own settings file, shows its menu section and answers DevBench. It carries
+the hook table every part will share (no hook is written while no part asks for one), and its testing build a test part that
+tries the engine's own light dimmer through DevBench. No mod's
 part is built in yet: Illuminated - Spell Lighting NG, RELight - Spell Lighting NG, Illuminated - Creature Lighting NG,
 Illuminated - Soul Gem Hub and Dynamic Wards each still ship a plugin of its own, and each moves in here in turn. Nothing here is
 released.
 
 ## What it does
-- At data load it reads every `SKSE\Plugins\IlluminatedCore\Modules\<part>.json` (at most 64 KB each): the part it names, the
+- When the game starts (SKSE's post-load message, before any hook of a part is written) it reads every
+  `SKSE\Plugins\IlluminatedCore\Modules\<part>.json` (at most 64 KB each): the part it names, the
   mod's data version and the core versions that data runs on.
 - A part stays off, and is named in ONE message box at the main menu, on the menu's Problems found page and in
   `IlluminatedCore.log`, when its file is broken, when this core does not have the part, when the data is older than this core
@@ -48,6 +51,7 @@ SKSE Menu Framework > Illuminated - Core, saved to `Data\SKSE\Plugins\Illuminate
 ## Building
 `build.bat` (git, xmake 3 and the Visual Studio C++ tools): CommonLib at the pinned commit, the DLL, then the off-game tests
 (`tests/testcore.cpp`: the game-free readers in `src/*Text.h` and the check sets the shared headers carry). For Skyrim VR:
+run `build.bat` once first (it fetches CommonLib into `lib\commonlibsse-ng` at the pinned commit), then
 `git -C lib\commonlibsse-ng submodule update --init extern/openvr`, then `build.bat` with `GLOW_VR=1` set (a VR-only build).
 
 ## Credits

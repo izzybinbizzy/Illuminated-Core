@@ -2,7 +2,7 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //
-// One look at data load, from text alone: the manifests found, the switches file, the old plugin files still loaded. Its result
+// One look at post-load, from text alone: the manifests found, the switches file, the old plugin files still loaded. Its result
 // is what the log, the menu's Installed and Problems found pages, the one message box and DevBench all show, so the four never
 // disagree. Nothing of the game in here (tests\testcore.cpp); every file is hostile input and nothing throws.
 
@@ -59,6 +59,8 @@ namespace SurveyText
 		bool switchesUnread{ false };
 		// files of the Modules folder left unread because it holds more than a start reads
 		std::size_t leftOut{ 0 };
+		// the Modules folder is there but its listing stopped on an error: a mod's file may not have been reached
+		bool folderUnread{ false };
 	};
 
 	enum class State : std::uint8_t
@@ -194,6 +196,11 @@ namespace SurveyText
 			out.rows.push_back(std::move(row));
 		}
 		out.problems.insert(out.problems.end(), std::make_move_iterator(broken.begin()), std::make_move_iterator(broken.end()));
+		if (a_in.folderUnread) {
+			out.problems.emplace_back(
+				"The Modules folder (SKSE\\Plugins\\IlluminatedCore\\Modules) could not be read to its end, so an installed mod may "
+				"be missing here. Check that the folder can be opened, then start the game again.");
+		}
 		if (a_in.leftOut > 0) {
 			out.problems.push_back(std::format("The Modules folder holds more files than are read at a start: {} left unread.", a_in.leftOut));
 		}
@@ -215,6 +222,21 @@ namespace SurveyText
 			if (std::ranges::any_of(a_survey.rows, [&](const Row& a_row) { return a_row.state == State::kRuns && a_row.module == part.id; })) {
 				out.push_back(part.id);
 			}
+		}
+		return out;
+	}
+
+	// a page's or section's name as the menu framework takes it: a '/' parts two names of a path there, so one inside a name (a
+	// translation may hold one) is marked with a backslash, the framework's own way to keep it part of the name
+	[[nodiscard]] inline std::string MenuName(std::string_view a_name)
+	{
+		std::string out;
+		out.reserve(a_name.size() + 2);
+		for (const char c : a_name) {
+			if (c == '/') {
+				out += '\\';
+			}
+			out += c;
 		}
 		return out;
 	}

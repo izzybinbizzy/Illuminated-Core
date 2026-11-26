@@ -4,6 +4,10 @@
 //
 // The kernel's own game-free code, then the check sets the shared files ship (each ran once per carrying plugin before).
 
+#include "ComposerChecks.h"
+#include "DimmerKeysChecks.h"
+#include "HookDispatchChecks.h"
+#include "LifecycleChecks.h"
 #include "ManifestText.h"
 #include "SurveyText.h"
 #include "SwitchesText.h"
@@ -50,10 +54,28 @@ namespace
 	constexpr std::array<std::string_view, 2> kFeatures{ "record-slots", "fading" };
 	constexpr Version                         kCoreNow{ { 1, 2, 0 } };
 
+	// a verdict's fixture has to parse: one that does not is a failed check of its own, never a verdict that happens to match
 	Verdict JudgeText(const char* a_text)
 	{
 		const auto read = Parse(a_text);
+		Check(read.manifest.has_value(), a_text, __LINE__);
 		return read.manifest ? Judge(*read.manifest, kKnown, kCoreNow, kFeatures) : Verdict::kUnknownModule;
+	}
+
+	// a failed size check must not turn into a read past the end: the item, or an empty one
+	template <class T>
+	[[nodiscard]] const T& ItemAt(const std::vector<T>& a_list, std::size_t a_index)
+	{
+		static const T kNone{};
+		return a_index < a_list.size() ? a_list[a_index] : kNone;
+	}
+
+	// one check set run with its own floor: a set that ran fewer checks than it names was cut short, whatever the others ran
+	void RunSet(void (*a_run)(void (*)(bool, const char*, int)), int a_named, const char* a_what)
+	{
+		const int before = gChecks;
+		a_run(Check);
+		Check(gChecks - before >= a_named, a_what, __LINE__);
 	}
 
 	void Versions()
@@ -178,9 +200,9 @@ namespace
 		// each line that cannot be used is named with its number, and the rest is still read
 		const auto bad = Parse("[Modules]\nwards\narcane = on\ncreatures = perhaps\nwards = off\nwards = on\n", kModules);
 		CHECK(bad.problems.size() == 4 && bad.switches.size() == 1 && !IsOn(bad, "wards") && IsOn(bad, "creatures"));
-		CHECK(bad.problems[0] == "line 2: no = on this line" && bad.problems[1] == "line 3: no part of this name");
-		CHECK(bad.problems[2] == "line 4: creatures is neither on nor off; it stays on");
-		CHECK(bad.problems[3] == "line 6: wards is written twice; the first stays");
+		CHECK(ItemAt(bad.problems, 0) == "line 2: no = on this line" && ItemAt(bad.problems, 1) == "line 3: no part of this name");
+		CHECK(ItemAt(bad.problems, 2) == "line 4: creatures is neither on nor off; it stays on");
+		CHECK(ItemAt(bad.problems, 3) == "line 6: wards is written twice; the first stays");
 		// what is written reads back the same
 		constexpr std::array<std::pair<std::string_view, bool>, 3> kSaved{ { { "illuminated", true }, { "wards", false }, { "creatures", true } } };
 		const auto                                                 text = Text(kSaved);
@@ -198,11 +220,17 @@ namespace
 			return std::format(R"({{"format":1,"module":"{}","title":"{}","dataVersion":"{}","needsCore":"1.0.0"}})", a_module, a_title, a_data);
 		};
 		const auto look = [&](std::span<const File> a_files, std::string_view a_switches = {}, std::span<const Old> a_old = {}) {
-			return Look({ a_files, a_switches, kParts, kCoreNow, kFeatures, a_old, false, 0 });
+			return Look({ a_files, a_switches, kParts, kCoreNow, kFeatures, a_old, false, 0, false });
 		};
 		const auto state = [](const Survey& a_survey, std::string_view a_module) {
 			const auto it = std::ranges::find(a_survey.rows, a_module, &Row::module);
 			return it == a_survey.rows.end() ? State::kStaysOff : it->state;
+		};
+		// a mod's row, or an empty one when the survey holds none: a missing row fails its check instead of being read
+		const auto row = [](const Survey& a_survey, std::string_view a_module) -> const Row& {
+			static const Row kNone{};
+			const auto       it = std::ranges::find(a_survey.rows, a_module, &Row::module);
+			return it == a_survey.rows.end() ? kNone : *it;
 		};
 
 		// nothing installed: no row, no line, no box, every part's switch on
@@ -214,16 +242,17 @@ namespace
 		const std::vector<File> two{ { "wards.json", manifest("wards", "Dynamic Wards", "5.0") },
 			{ "illuminated.json", manifest("illuminated", "Illuminated - Spell Lighting NG", "4.0") } };
 		const auto              both = look(two);
-		CHECK(both.rows.size() == 2 && both.rows[0].module == "illuminated" && both.rows[1].module == "wards");
+		CHECK(both.rows.size() == 2 && ItemAt(both.rows, 0).module == "illuminated" && ItemAt(both.rows, 1).module == "wards");
 		CHECK(both.problems.empty() && BoxText(both).empty());
 		CHECK(Awake(both, kParts) == std::vector<std::string_view>{ "illuminated", "wards" });
-		CHECK(both.rows[0].known && both.rows[0].title == "Illuminated - Spell Lighting NG" && both.rows[0].dataVersion == Version{ { 4, 0, 0 } });
+		CHECK(ItemAt(both.rows, 0).known && ItemAt(both.rows, 0).title == "Illuminated - Spell Lighting NG" &&
+			  ItemAt(both.rows, 0).dataVersion == Version{ { 4, 0, 0 } });
 
 		// a part switched off in the file is no problem: it is off, and its switch reads off
 		const auto off = look(two, "[Modules]\nwards = off\n");
 		CHECK(state(off, "wards") == State::kSwitchedOff && state(off, "illuminated") == State::kRuns && off.problems.empty());
 		CHECK(Awake(off, kParts) == std::vector<std::string_view>{ "illuminated" });
-		CHECK(off.switches[2] == std::pair<std::string_view, bool>{ "wards", false } && off.switches[0].second);
+		CHECK(ItemAt(off.switches, 2) == std::pair<std::string_view, bool>{ "wards", false } && ItemAt(off.switches, 0).second);
 
 		// the two lighting mods together: neither runs, one line names both, the other parts run
 		const std::vector<File> lit{ { "relight.json", manifest("relight", "RELight - Spell Lighting NG", "5.0") },
@@ -231,7 +260,7 @@ namespace
 			{ "wards.json", manifest("wards", "Dynamic Wards", "5.0") } };
 		const auto              clash = look(lit);
 		CHECK(state(clash, "illuminated") == State::kStaysOff && state(clash, "relight") == State::kStaysOff && state(clash, "wards") == State::kRuns);
-		CHECK(clash.problems.size() == 1 && clash.problems[0] ==
+		CHECK(clash.problems.size() == 1 && ItemAt(clash.problems, 0) ==
 												"Illuminated - Spell Lighting NG and RELight - Spell Lighting NG are both installed. Both light the same "
 												"spells, so neither runs. One of the two has to be removed.");
 		// switching one of the two off does not lift it: the files both mods' light frameworks read are still both installed
@@ -242,9 +271,9 @@ namespace
 			{ "creatures.json", manifest("creatures", "Illuminated - Creature Lighting NG", "2.0") } };
 		const auto              dup = look(twice);
 		CHECK(dup.rows.size() == 3 && state(dup, "wards") == State::kStaysOff && state(dup, "creatures") == State::kRuns);
-		CHECK(dup.problems.size() == 1 && dup.problems[0].find("\"wards\"") != std::string::npos);
+		CHECK(dup.problems.size() == 1 && ItemAt(dup.problems, 0).find("\"wards\"") != std::string::npos);
 		// both rows of that part are marked, so neither carries a switch; the other mod's row is not
-		CHECK(std::ranges::count(dup.rows, true, &Row::twice) == 2 && !std::ranges::find(dup.rows, std::string_view("creatures"), &Row::module)->twice);
+		CHECK(std::ranges::count(dup.rows, true, &Row::twice) == 2 && row(dup, "creatures").module == "creatures" && !row(dup, "creatures").twice);
 
 		// data older than this core runs, a part this core does not have, a broken file, a file that could not be read
 		const std::vector<File> bad{ { "wards.json", manifest("wards", "Dynamic Wards", "4.3") }, { "arcane.json", manifest("arcane", "Arcane Overdrive", "1.0") },
@@ -255,7 +284,7 @@ namespace
 		CHECK(state(mixed, "creatures") == State::kRuns && Awake(mixed, kParts) == std::vector<std::string_view>{ "creatures" });
 		CHECK(mixed.problems.size() == 6);
 		// a part this core does not have carries no switch
-		CHECK(!std::ranges::find(mixed.rows, std::string_view("arcane"), &Row::module)->known);
+		CHECK(row(mixed, "arcane").module == "arcane" && !row(mixed, "arcane").known);
 		const auto has = [&](std::string_view a_text) {
 			return std::ranges::any_of(mixed.problems, [&](const std::string& a_line) { return a_line.find(a_text) != std::string::npos; });
 		};
@@ -272,13 +301,13 @@ namespace
 		// (beside new data of the same mod, old files alone are an update's leftovers: not named, and the part runs)
 		const auto old = look(two, {}, kOld);
 		CHECK(state(old, "wards") == State::kStaysOff && state(old, "illuminated") == State::kRuns && old.problems.size() == 1);
-		CHECK(old.problems[0] ==
+		CHECK(ItemAt(old.problems, 0) ==
 			  "A version of Dynamic Wards from before Illuminated - Core is still installed and keeps running (\"DynamicWards.dll\"). "
 			  "Its part of Illuminated - Core stays off until that version is removed.");
 		// the old versions alone, with no new data: both named
 		const auto alone = look({}, {}, kOld);
 		CHECK(alone.problems.size() == 2 && alone.rows.empty());
-		CHECK(alone.problems[1] ==
+		CHECK(ItemAt(alone.problems, 1) ==
 			  "Files of Illuminated - Spell Lighting NG from a version before Illuminated - Core are installed (\"Illuminated.ini\"). "
 			  "That version does not run with Illuminated - Core: it has to be updated or removed.");
 
@@ -299,12 +328,19 @@ namespace
 
 		// a Settings.ini that is there and cannot be read, and a folder with more files than a start reads: both said, and the
 		// survey carries the mark that keeps the file from being written over
-		const auto unread = Look({ two, {}, kParts, kCoreNow, kFeatures, {}, true, 3 });
+		const auto unread = Look({ two, {}, kParts, kCoreNow, kFeatures, {}, true, 3, false });
 		CHECK(unread.switchesUnread && !both.switchesUnread && unread.problems.size() == 2 && state(unread, "wards") == State::kRuns);
-		if (unread.problems.size() == 2) {
-			CHECK(unread.problems[0] == "The Modules folder holds more files than are read at a start: 3 left unread.");
-			CHECK(unread.problems[1] == "Settings.ini could not be read, so every switch counts as on. The file is left as it is until it can be read.");
-		}
+		CHECK(ItemAt(unread.problems, 0) == "The Modules folder holds more files than are read at a start: 3 left unread.");
+		CHECK(ItemAt(unread.problems, 1) == "Settings.ini could not be read, so every switch counts as on. The file is left as it is until it can be read.");
+		// a Modules folder whose listing stopped on an error: what was reached still runs, and one line says what to do
+		const auto cut = Look({ two, {}, kParts, kCoreNow, kFeatures, {}, false, 0, true });
+		CHECK(cut.problems.size() == 1 && state(cut, "wards") == State::kRuns && state(cut, "illuminated") == State::kRuns);
+		CHECK(ItemAt(cut.problems, 0).starts_with("The Modules folder (SKSE\\Plugins\\IlluminatedCore\\Modules) could not be read to its end") &&
+			  ItemAt(cut.problems, 0).ends_with("Check that the folder can be opened, then start the game again."));
+		// with no mod reached at all the box still says so
+		CHECK(!BoxText(Look({ {}, {}, kParts, kCoreNow, kFeatures, {}, false, 0, true })).empty());
+		// a name the menu framework takes: a slash inside it is marked, everything else is as it was
+		CHECK(MenuName("Problems found") == "Problems found" && MenuName("") == "" && MenuName("a/b / c") == "a\\/b \\/ c");
 		// the box holds its first line always and a further line only while the lines fit its room
 		Survey longOnes;
 		longOnes.problems.assign(5, std::string(250, 'x'));
@@ -345,20 +381,24 @@ int main()
 	Twice();
 	Switches();
 	Surveys();
+	// the kernel's own check sets that live beside their subjects: the shared hook, the dimmer's keys, the composer, the moments
+	// each set against its own floor: a set cut short is caught even when another set ran more checks than it names
+	RunSet(HookDispatchChecks::Run, HookDispatchChecks::kCount, "the shared hook's checks ran the checks they name");
+	RunSet(DimmerKeysChecks::Run, DimmerKeysChecks::kCount, "the dimmer keys' checks ran the checks they name");
+	RunSet(ComposerChecks::Run, ComposerChecks::kCount, "the composer's checks ran the checks they name");
+	RunSet(LifecycleChecks::Run, LifecycleChecks::kCount, "the moments' checks ran the checks they name");
 	const int own = gChecks;
-	RowParkChecks::Run(Check);
-	NoteRingChecks::Run(Check);
-	EnbShaderLightsChecks::Run(Check);
-	FloorLightChecks::Run(Check);
-	Po3TweaksChecks::Run(Check);
-	AdvancedSettingsChecks::Run(Check);
+	RunSet(RowParkChecks::Run, RowParkChecks::kCount, "the parking rule's checks ran the checks they name");
+	RunSet(NoteRingChecks::Run, NoteRingChecks::kCount, "the note ring's checks ran the checks they name");
+	RunSet(EnbShaderLightsChecks::Run, EnbShaderLightsChecks::kCount, "the ENB shader lights' checks ran the checks they name");
+	RunSet(FloorLightChecks::Run, FloorLightChecks::kCount, "the Floor Light Fix's checks ran the checks they name");
+	RunSet(Po3TweaksChecks::Run, Po3TweaksChecks::kCount, "the Tweaks judge's checks ran the checks they name");
+	RunSet(AdvancedSettingsChecks::Run, AdvancedSettingsChecks::kCount, "the advanced file's checks ran the checks they name");
 	const int shared = RowParkChecks::kCount + NoteRingChecks::kCount + EnbShaderLightsChecks::kCount + FloorLightChecks::kCount +
 	                   Po3TweaksChecks::kCount + AdvancedSettingsChecks::kCount;
-	// each set names a floor: a set that ran fewer checks than it names was cut short
+	// the six floor checks above are the test's own, counted with the shared sets' run here
 	const int ran = gChecks - own;
-	Check(ran >= shared, "the shared check sets ran at least as many checks as they name", __LINE__);
-	// the closing check above is the kernel's own too, so the two counts add up to the total
-	std::printf("testcore: %d checks, %d failed (%d of the kernel's own, %d from the shared check sets, which name %d)\n", gChecks, gFails, own + 1, ran,
-		shared);
+	std::printf("testcore: %d checks, %d failed (%d of the kernel's own, %d from the shared check sets and their six floors, which name %d)\n",
+		gChecks, gFails, own, ran, shared);
 	return gFails ? 1 : 0;
 }
