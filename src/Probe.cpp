@@ -5,12 +5,11 @@
 // The kernel's test part, compiled only into the testing build (CORE_PROBE): the routes the core is to stand on are tried here on
 // the game's own lights before any mod's part rests on them. DevBench reaches it as the tool illuminatedcore.probe:
 //   action=dimmer  hand=left|right kind=<a pulse shape's name> depth=<number>   the game's dimmer put on that hand's casting
-//                  light, playing that shape as baked keys (an overshoot first: depth above 1 swings wider than any shipped shape)
+//                  light, playing that shape as baked keys (an overshoot first: depth above 1, up to 2, swings wider than any shipped shape)
 //   action=read    hand=left|right   the casting light's fade now, and whether a dimmer of this part is on it - read twice a
 //                  moment apart, a fade that moved with no code of ours running is the engine playing the keys
 //   action=release hand=left|right   the dimmer stopped and the light's fade put back to what it was
 // Nothing here runs without a DevBench request, and nothing of it is in a shipped build.
-// DRAFT: not compiled yet.
 
 #ifdef CORE_PROBE
 
@@ -23,6 +22,7 @@
 #	include <algorithm>
 #	include <array>
 #	include <atomic>
+#	include <cmath>
 #	include <cstddef>
 #	include <cstdint>
 #	include <filesystem>
@@ -36,7 +36,7 @@ namespace Core
 		using DevBenchGlue::json;
 
 		constexpr const char* kTool =
-			R"json({"description":"Illuminated - Core, testing build only: tries the engine routes on the game's own lights. action=dimmer puts the game's light dimmer on the player's casting light of one hand (hand left or right; a spell must be drawn) and plays a pulse shape as baked keys (kind = healing, absorbhealth, absorbmagicka, absorbstamina, illusion, conjuration, alteration, magelight, ward, rune, or one of the four played as a 12-second loop: fire, frost, shock, poison; depth = how wide it swings, 1 as shipped, more to overshoot). action=read gives that light's fade now. action=release stops the dimmer and puts the fade back. action=frames (no hand) tries the shared hook on the player's update, only in a start with the file Data/SKSE/Plugins/IlluminatedCore/Probe Frames.txt in place (else written is false and a note says so): with count=N its handler counts N frames and switches itself off, without count it only reads - handlerRuns stands still while nothing is armed. Each reply is the state after the action, read on the main thread.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["dimmer","read","release","frames"]},"count":{"type":"number"},"hand":{"type":"string","enum":["left","right"]},"kind":{"type":"string"},"depth":{"type":"number"}},"required":["action"]}})json";
+			R"json({"description":"Illuminated - Core, testing build only: tries the engine routes on the game's own lights. action=dimmer puts the game's light dimmer on the player's casting light of one hand (hand left or right; a spell must be drawn) and plays a pulse shape as baked keys (kind = healing, absorbhealth, absorbmagicka, absorbstamina, illusion, conjuration, alteration, magelight, ward, rune, or one of the four played as a 12-second loop: fire, frost, shock, poison; depth = how wide it swings, 1 as shipped, up to 2 to overshoot, in steps of 0.05; the reply gives depthAsked and the depth played). action=read gives that light's fade now. action=release stops the dimmer and puts the fade back. action=frames (no hand) tries the shared hook on the player's update, only in a start with the file Data/SKSE/Plugins/IlluminatedCore/Probe Frames.txt in place (else written is false and a note says so): with count=N its handler counts N frames and switches itself off, without count it only reads - handlerRuns stands still while nothing is armed. Each reply is the state after the action, read on the main thread.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["dimmer","read","release","frames"]},"count":{"type":"number"},"hand":{"type":"string","enum":["left","right"]},"kind":{"type":"string"},"depth":{"type":"number"}},"required":["action"]}})json";
 
 		// one hand's trial: the light the dimmer was put on, the dimmer, and the fade the light had before
 		struct Trial
@@ -154,17 +154,19 @@ namespace Core
 				return DevBenchGlue::Refusal("unknown action '" + action + "'", json::array({ "dimmer", "read", "release", "frames" }));
 			}
 			const auto kind = Pulse::KindOf(DevBenchGlue::Text(a_args, "kind"));
-			const auto depth = DevBenchGlue::Number(a_args, "depth").value_or(1.0);
+			const auto asked = DevBenchGlue::Number(a_args, "depth").value_or(1.0);
 			if (!kind || !(DimmerKeys::Period(*kind) > 0.0)) {
 				return DevBenchGlue::Refusal("kind names no pulse shape",
 					json::array({ "healing", "absorbhealth", "absorbmagicka", "absorbstamina", "illusion", "conjuration", "alteration", "magelight", "ward", "rune",
 						"fire", "frost", "shock", "poison" }));
 			}
-			const auto loop = DimmerKeys::Bake(*kind, 1, static_cast<float>(std::clamp(depth, 0.1, 20.0)), 0.0);
+			// held to the widest proven swing, in twentieths, so a sweep of depths keeps few traced loops
+			const auto depth = static_cast<float>(std::round(std::clamp(asked, 0.1, static_cast<double>(DimmerKeys::kMostDepth)) * 20.0) / 20.0);
+			const auto loop = DimmerKeys::Bake(*kind, 1, depth, 0.0);
 			if (!loop) {
 				return DevBenchGlue::Refusal("that shape gave no keys");
 			}
-			const auto now = DevBenchGlue::OnMainThread([slot, loop]() {
+			const auto now = DevBenchGlue::OnMainThread([slot, loop, asked, depth]() {
 				auto* light = CastingLight(slot);
 				if (!light) {
 					return Seen(slot);
@@ -182,6 +184,8 @@ namespace Core
 				json seen = Seen(slot);
 				seen["keys"] = loop->keys.size();
 				seen["period"] = loop->period;
+				seen["depthAsked"] = asked;
+				seen["depth"] = depth;
 				return seen;
 			});
 			return now ? *now : DevBenchGlue::NotRunYet();

@@ -182,6 +182,10 @@ namespace HookDispatch
 		// every handler's count and times back to nothing (a test's start, a load). Any thread
 		void ResetCounts() noexcept
 		{
+			// the lists are complete only once the slot is sealed; before that no thunk ran and nothing was counted
+			if (!Sealed()) {
+				return;
+			}
 			for (std::size_t i = 0; i < beforeCount; ++i) {
 				before[i].Reset();
 			}

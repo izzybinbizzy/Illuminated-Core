@@ -44,8 +44,14 @@ namespace DimmerKeys
 	inline constexpr double kTolerance = 0.002;
 	// a repeating shape is read on this many points to a loop, and every key sits on one of them: the lines are held to half the
 	// tolerance there, and the other half is room for what a corner falling between two points can add (the sharpest, a
-	// heartbeat's, adds at most about 0.0007 on this grid)
+	// heartbeat's at the shapes as designed, adds at most about 0.0007 on this grid)
 	inline constexpr std::size_t kGrid = 8192;
+	// a corner's error between two points grows with the swing: a loop wider than the shapes as designed is read on this many
+	// points, so a light as shipped keeps the cost of the grid above
+	inline constexpr std::size_t kGridWide = 16384;
+	// the widest swing a loop is baked at: twice the shapes as designed. The wide grid holds the tolerance up to it, and the
+	// checks prove it there; a wider one is held to this
+	inline constexpr float       kMostDepth = 2.0f;
 	inline constexpr std::size_t kMostKeys = 1024;
 	// a loop is cut into this many even pieces first, so a shape with several beats in one loop has each of them looked at
 	inline constexpr std::size_t kPieces = 16;
@@ -99,6 +105,9 @@ namespace DimmerKeys
 
 	namespace Detail
 	{
+		// the points a loop of a_depth is read on: the wide grid only for a swing wider than the shapes as designed
+		[[nodiscard]] constexpr std::size_t GridFor(float a_depth) noexcept { return a_depth > 1.0f ? kGridWide : kGrid; }
+
 		// one stretch between two kept grid points: the point between them farthest from their straight line, and how far
 		struct Span
 		{
@@ -122,25 +131,26 @@ namespace DimmerKeys
 			return span;
 		}
 
-		// one loop of a shape that repeats after a_period seconds: the shape read on kGrid + 1 points, then keys added where the
-		// straight lines stray most, worst first, until every point is within half the tolerance or the loop holds kMostKeys
+		// one loop of a shape that repeats after a_period seconds: the shape read on a_grid + 1 points (GridFor), then keys added
+		// where the straight lines stray most, worst first, until every point is within half the tolerance or the loop holds
+		// kMostKeys
 		template <class F>
-		[[nodiscard]] Loop Trace(const F& a_shape, double a_period)
+		[[nodiscard]] Loop Trace(const F& a_shape, double a_period, std::size_t a_grid = kGrid)
 		{
-			std::vector<double> value(kGrid + 1);
-			for (std::size_t i = 0; i < kGrid; ++i) {
-				value[i] = a_shape(a_period * static_cast<double>(i) / static_cast<double>(kGrid));
+			std::vector<double> value(a_grid + 1);
+			for (std::size_t i = 0; i < a_grid; ++i) {
+				value[i] = a_shape(a_period * static_cast<double>(i) / static_cast<double>(a_grid));
 			}
 			// the last point takes the first point's value: the shape repeats there, and the wrap must not show a step from rounding
-			value[kGrid] = value[0];
+			value[a_grid] = value[0];
 			const auto                                                     lesser = [](const Span& a_one, const Span& a_two) { return a_one.off < a_two.off; };
 			std::priority_queue<Span, std::vector<Span>, decltype(lesser)> spans(lesser);
-			std::vector<bool>                                              kept(kGrid + 1, false);
+			std::vector<bool>                                              kept(a_grid + 1, false);
 			for (std::size_t piece = 0; piece < kPieces; ++piece) {
-				kept[kGrid * piece / kPieces] = true;
-				spans.push(Measure(value, kGrid * piece / kPieces, kGrid * (piece + 1) / kPieces));
+				kept[a_grid * piece / kPieces] = true;
+				spans.push(Measure(value, a_grid * piece / kPieces, a_grid * (piece + 1) / kPieces));
 			}
-			kept[kGrid] = true;
+			kept[a_grid] = true;
 			std::size_t count = kPieces + 1;
 			// one key of room is kept: a loop turned to a light's own place (Turn) gains a key where it now starts
 			while (!spans.empty() && count + 1 < kMostKeys && spans.top().off > 0.5 * kTolerance) {
@@ -154,9 +164,9 @@ namespace DimmerKeys
 			Loop out;
 			out.period = static_cast<float>(a_period);
 			out.keys.reserve(count);
-			for (std::size_t i = 0; i <= kGrid; ++i) {
+			for (std::size_t i = 0; i <= a_grid; ++i) {
 				if (kept[i]) {
-					const float time = i == kGrid ? out.period : static_cast<float>(a_period * static_cast<double>(i) / static_cast<double>(kGrid));
+					const float time = i == a_grid ? out.period : static_cast<float>(a_period * static_cast<double>(i) / static_cast<double>(a_grid));
 					out.keys.push_back({ time, static_cast<float>(value[i]) });
 				}
 			}
@@ -263,7 +273,7 @@ namespace DimmerKeys
 				}
 			}
 			auto loop = std::make_shared<const Loop>(
-				Trace([&](double a_time) { return static_cast<double>(Pulse::Factor(a_kind, a_time, 0, a_depth)); }, a_period));
+				Trace([&](double a_time) { return static_cast<double>(Pulse::Factor(a_kind, a_time, 0, a_depth)); }, a_period, GridFor(a_depth)));
 			std::scoped_lock guard{ lock };
 			if (kept.size() < kMostKept) {
 				kept.push_back({ a_kind, a_depth, loop });
@@ -274,20 +284,23 @@ namespace DimmerKeys
 
 	// the loop of a light of a_kind and a_seed at a_depth, as Pulse::Factor shapes it from the session time a_start on (the moment
 	// the dimmer starts playing); nothing for a light that does not pulse. A shape that only moves in time with the seed is traced
-	// once per kind and depth and turned to each light's place, so a burst of new lights costs a copy of keys each
+	// once per kind and depth and turned to each light's place, so a burst of new lights costs a copy of keys each. A depth past
+	// kMostDepth is baked at kMostDepth, so such a loop swings less than Pulse::Factor at that depth would
 	[[nodiscard]] inline std::optional<Loop> Bake(Pulse::Kind a_kind, std::uint32_t a_seed, float a_depth, double a_start)
 	{
 		const double period = Period(a_kind);
 		if (!(period > 0.0) || !(a_depth > 0.0f) || !std::isfinite(a_start)) {
 			return std::nullopt;
 		}
+		// past kMostDepth the grid no longer holds the tolerance: a wider swing is baked at the widest one that is proven
+		const float depth = (std::min)(a_depth, kMostDepth);
 		if (Shifts(a_kind)) {
 			// Pulse's Phase puts seed s at Unit(s, 0x51ED) of the cycle: the same place as seed 0 that many periods later
 			const double place = (Pulse::Unit(a_seed, 0x51ED) - Pulse::Unit(0, 0x51ED)) * period;
-			return Detail::Turn(*Detail::Traced(a_kind, a_depth, period), period, a_start + place);
+			return Detail::Turn(*Detail::Traced(a_kind, depth, period), period, a_start + place);
 		}
-		const auto shape = [&](double a_time) { return static_cast<double>(Pulse::Factor(a_kind, a_start + a_time, a_seed, a_depth)); };
-		return IsNoise(a_kind) ? Detail::Even(shape, period) : Detail::Trace(shape, period);
+		const auto shape = [&](double a_time) { return static_cast<double>(Pulse::Factor(a_kind, a_start + a_time, a_seed, depth)); };
+		return IsNoise(a_kind) ? Detail::Even(shape, period) : Detail::Trace(shape, period, Detail::GridFor(depth));
 	}
 
 	inline float At(const Loop& a_loop, double a_seconds)

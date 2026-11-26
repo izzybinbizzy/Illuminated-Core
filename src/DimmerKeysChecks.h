@@ -18,7 +18,7 @@ namespace DimmerKeysChecks
 	using Check = void (*)(bool a_ok, const char* a_what, int a_line);
 
 	// the checks one Run makes (raise it when checks are added)
-	inline constexpr int kCount = 1828;
+	inline constexpr int kCount = 2721;
 
 // a check may hold a braced list with commas of its own
 #define CORE_CHECK(...) a_check((__VA_ARGS__), #__VA_ARGS__, __LINE__)
@@ -35,6 +35,15 @@ namespace DimmerKeysChecks
 		CORE_CHECK(Period(Kind::kNone) == 0.0 && !IsNoise(Kind::kNone) && !Bake(Kind::kNone, 7, 1.0f, 0.0).has_value());
 		CORE_CHECK(!Bake(Kind::kHealing, 7, 0.0f, 0.0).has_value() && !Bake(Kind::kHealing, 7, -1.0f, 0.0).has_value());
 		CORE_CHECK(!Bake(Kind::kHealing, 7, 1.0f, std::nan("")).has_value());
+		// a swing past the widest proven one is baked at that one (the test part asks up to 20 for an overshoot)
+		// on every route a loop takes: traced once and turned, traced per light, and played as a 12-second loop
+		for (const auto kind : { Kind::kAbsorbHealth, Kind::kIllusion, Kind::kFire }) {
+			const auto wide = Bake(kind, 3, 20.0f, 0.0);
+			const auto widest = Bake(kind, 3, kMostDepth, 0.0);
+			CORE_CHECK(wide && widest && wide->keys.size() == widest->keys.size() && At(*wide, 0.37) == At(*widest, 0.37));
+		}
+		// a light as shipped keeps the cheaper grid; only a wider swing is read on the wide one
+		CORE_CHECK(Detail::GridFor(1.0f) == kGrid && Detail::GridFor(0.5f) == kGrid && Detail::GridFor(kMostDepth) == kGridWide);
 
 		std::size_t most = 0;
 		double      worst = 0.0;
@@ -52,7 +61,7 @@ namespace DimmerKeysChecks
 			}
 			for (const std::uint32_t seed : { 1u, 77u, 0xDEADBEEFu, 0u }) {
 				for (const double start : { 0.0, 123.456, 86400.25 }) {
-					for (const float depth : { 1.0f, 0.5f }) {
+					for (const float depth : { 1.0f, 0.5f, kMostDepth }) {
 						const auto loop = Bake(kind, seed, depth, start);
 						CORE_CHECK(loop.has_value());
 						if (!loop) {
@@ -83,22 +92,24 @@ namespace DimmerKeysChecks
 			}
 		}
 		// a heartbeat whose peak falls inside the first piece, a few hundredths of a millisecond in (CodeRabbit's case on pull request 1):
-		// read finely across that piece, the loop stays within the tolerance there too
-		const auto beat = Bake(Kind::kAbsorbHealth, 1, 1.0f, 1.0597 - Pulse::Unit(1, 0x51ED));
-		double     beatOff = beat ? 0.0 : 1.0;
-		for (int i = 0; beat && i <= 20000; ++i) {
-			const double t = 0.1 * i / 20000.0;
-			beatOff = (std::max)(beatOff,
-				static_cast<double>(std::abs(At(*beat, t) - Pulse::Factor(Kind::kAbsorbHealth, 1.0597 - Pulse::Unit(1, 0x51ED) + t, 1, 1.0f))));
+		// read finely across that piece, the loop stays within the tolerance there too, on the grid as shipped and at the widest swing
+		for (const float depth : { 1.0f, kMostDepth }) {
+			const double beatStart = 1.0597 - Pulse::Unit(1, 0x51ED);
+			const auto   beat = Bake(Kind::kAbsorbHealth, 1, depth, beatStart);
+			double       beatOff = beat ? 0.0 : 1.0;
+			for (int i = 0; beat && i <= 20000; ++i) {
+				const double t = 0.1 * i / 20000.0;
+				beatOff = (std::max)(beatOff, static_cast<double>(std::abs(At(*beat, t) - Pulse::Factor(Kind::kAbsorbHealth, beatStart + t, 1, depth))));
+			}
+			CORE_CHECK(beatOff <= kTolerance);
 		}
-		CORE_CHECK(beatOff <= kTolerance);
 
 		// the four shapes that never repeat play a loop of 12 seconds (his checklist 927), Creatures' way
 		for (const auto kind : kNoise) {
 			CORE_CHECK(IsNoise(kind) && Period(kind) == kNoiseLoop);
 			for (const std::uint32_t seed : { 1u, 77u, 0xDEADBEEFu, 0u }) {
 				for (const double start : { 0.0, 123.456, 86400.25 }) {
-					for (const float depth : { 1.0f, 0.5f }) {
+					for (const float depth : { 1.0f, 0.5f, kMostDepth }) {
 						const auto loop = Bake(kind, seed, depth, start);
 						CORE_CHECK(loop.has_value());
 						if (!loop) {

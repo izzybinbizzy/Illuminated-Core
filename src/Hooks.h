@@ -5,7 +5,6 @@
 // The hook table's game side: a slot's one thunk written into a class's vtable or over a call site, and only when some awake part
 // asked for that slot (HookDispatch.h holds the handlers and the armed word; nothing of the game is in it). Each place a slot is
 // written keeps its own copy of the game's function there, so one handler list serves a character's and the player's vtable alike.
-// DRAFT: not compiled yet - a template is only checked once a row uses it, and the first rows come with the kernel's test part.
 
 #pragma once
 

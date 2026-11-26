@@ -7,7 +7,6 @@
 // core this was written twice by hand (the creature lights, the burning banners). The controller and its key makers are not in
 // our pin of CommonLib, so they are reached by address; the way to set one up was read off CommonLibSSE-NG's pull request 477
 // (MIT) and Baked Goods by ItzIvy05.
-// DRAFT: not compiled yet - its first user is the kernel's test part.
 
 #pragma once
 

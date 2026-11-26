@@ -5,7 +5,6 @@
 // The hook table: every game function the core hooks, in one place - the slot per game, the moment it is written, and what else
 // is known to sit on it. A row is written only when an awake part added a handler to its slot (Hooks.h, HookDispatch.h), so a
 // core with no part awake writes nothing: DevBench's read-out then lists every row as not written.
-// DRAFT: not compiled yet - the first row comes with the kernel's test part.
 
 #include "Hooks.h"
 
