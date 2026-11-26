@@ -34,10 +34,10 @@ namespace
 			Core::OfferToDevBench();
 			break;
 		case SKSE::MessagingInterface::kDataLoaded:
-			// the survey before the menu's steps: a throw in them leaves the log and the box as they are
-			Core::LookAtData();
-			SKSE::log::info("{}", Translation::Load("IlluminatedCore"));
-			Core::RegisterMenu();
+			// each step guarded alone: a throw in one still leaves the others done (the menu shows what the survey found)
+			Core::Guarded("the survey at data load", []() { Core::LookAtData(); });
+			Core::Guarded("the translation file", []() { SKSE::log::info("{}", Translation::Load("IlluminatedCore")); });
+			Core::Guarded("the menu section", []() { Core::RegisterMenu(); });
 			break;
 		default:
 			break;

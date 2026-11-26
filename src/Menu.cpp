@@ -30,6 +30,11 @@
 #include "MenuStyle.h"
 #include "Translation.h"
 
+#include <algorithm>
+#include <format>
+#include <string_view>
+#include <utility>
+
 namespace Core
 {
 	namespace
@@ -67,19 +72,20 @@ namespace Core
 				MenuStyle::Note(T("No mod that needs Illuminated - Core is installed. Nothing runs."));
 				return;
 			}
+			int index = 0;
 			for (const auto& row : survey->rows) {
 				const auto name = std::format("{} {}", row.title, ManifestText::Shown(row.dataVersion));
 				const auto it = std::ranges::find(switches, std::string_view(row.module), &std::pair<std::string_view, bool>::first);
-				if (!row.known || it == switches.end()) {
+				// each row its own id: two mods may carry one name
+				PushID(index++);
+				// a part this core does not have, and one named by two files, carry no switch
+				if (!row.known || row.twice || it == switches.end()) {
 					MenuStyle::Status(false, name.c_str());
 				} else {
-					// the mod's switch; its label is the mod's own name, and two rows never share one (a part named twice stays off)
 					bool on = it->second;
-					PushID(row.module.c_str());
 					if (Checkbox(name.c_str(), &on)) {
 						static_cast<void>(SetSwitch(row.module, on));
 					}
-					PopID();
 					MenuStyle::Tip(T("Off, this mod's part of Illuminated - Core does not run. A change takes hold from the next game start."));
 					// what the next start does, only where it differs from this session
 					if (on != (row.state != SurveyText::State::kSwitchedOff)) {
@@ -89,6 +95,7 @@ namespace Core
 				}
 				SameLine(0.0f, 12.0f);
 				TextColored(row.state == SurveyText::State::kStaysOff ? MenuStyle::kBad : kMuted, "%s", StateWords(row.state));
+				PopID();
 			}
 		}
 

@@ -22,6 +22,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace ManifestText
@@ -66,10 +67,12 @@ namespace ManifestText
 		return std::format("{}.{}.{}", a_version.parts[0], a_version.parts[1], a_version.parts[2]);
 	}
 
-	// printable ASCII on one line, not empty, at most a_most long: the only text of a file a message box shows
+	// printable ASCII on one line, not empty, at most a_most long, and no < or > (the game's message box reads those as markup):
+	// the only text of a file a message box shows
 	[[nodiscard]] inline bool Plain(std::string_view a_text, std::size_t a_most) noexcept
 	{
-		return !a_text.empty() && a_text.size() <= a_most && std::ranges::all_of(a_text, [](char a_c) { return a_c >= ' ' && a_c <= '~'; });
+		return !a_text.empty() && a_text.size() <= a_most &&
+		       std::ranges::all_of(a_text, [](char a_c) { return a_c >= ' ' && a_c <= '~' && a_c != '<' && a_c != '>'; });
 	}
 
 	struct Manifest

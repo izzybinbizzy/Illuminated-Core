@@ -11,6 +11,9 @@
 
 #include "DevBenchGlue.h"
 
+#include <string>
+#include <utility>
+
 namespace Core
 {
 	namespace
@@ -58,10 +61,10 @@ namespace Core
 			json rows = json::array();
 			for (const auto& row : survey->rows) {
 				rows.push_back({ { "part", row.module }, { "title", row.title }, { "dataVersion", ManifestText::Shown(row.dataVersion) },
-					{ "state", StateName(row.state) }, { "known", row.known } });
+					{ "state", StateName(row.state) }, { "known", row.known }, { "namedTwice", row.twice } });
 			}
 			return json{ { "version", ManifestText::Shown(VersionNow()) }, { "parts", std::move(parts) }, { "installed", std::move(rows) },
-				{ "switchesNextStart", SwitchesJson() }, { "problems", survey->problems } };
+				{ "switchesNextStart", SwitchesJson() }, { "settingsFileUnread", survey->switchesUnread }, { "problems", survey->problems } };
 		}
 
 		void Handler(void*, const char*, void* a_sink, DevBenchAPI::WriteFn a_write) noexcept
@@ -95,7 +98,8 @@ namespace Core
 				}
 				return DevBenchGlue::Refusal("no part '" + part + "' in this core", std::move(known));
 			}
-			return json{ { "ok", true }, { "part", part }, { "switchesNextStart", SwitchesJson() } };
+			// a Settings.ini that could not be read at the start is never written over: the switch then holds for this session only
+			return json{ { "ok", true }, { "part", part }, { "saved", !SurveyNow()->switchesUnread }, { "switchesNextStart", SwitchesJson() } };
 		}
 
 		void Control(void*, const char* a_args, void* a_sink, DevBenchAPI::WriteFn a_write) noexcept

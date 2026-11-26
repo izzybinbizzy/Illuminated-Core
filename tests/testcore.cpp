@@ -86,6 +86,14 @@ namespace
 		if (bare.manifest) {
 			CHECK(bare.manifest->title == "wards" && bare.manifest->notice.empty() && !bare.manifest->needsCoreMax.has_value());
 		}
+		// < and > never reach a message box: a title with one falls back to the id, a notice with one is dropped, an id with one is refused
+		const auto marked = Parse(R"({"format":1,"module":"wards","title":"<font size='60'>X","notice":"a <b> c","dataVersion":"5","needsCore":"1"})");
+		CHECK(marked.manifest.has_value());
+		if (marked.manifest) {
+			CHECK(marked.manifest->title == "wards" && marked.manifest->notice.empty());
+		}
+		CHECK(!Parse(R"({"format":1,"module":"<wards>","dataVersion":"5","needsCore":"1"})").manifest.has_value());
+		CHECK(!Plain("a<b", 10) && !Plain("a>b", 10) && Plain("a - b (c)", 10));
 		// every broken file gives a sentence and no manifest, and nothing throws
 		for (const char* bad : { "", "{", "[]", "7", "null", R"({"format":2,"module":"wards","dataVersion":"5","needsCore":"1"})",
 				 R"({"format":"1","module":"wards","dataVersion":"5","needsCore":"1"})", R"({"format":1,"dataVersion":"5","needsCore":"1"})",
@@ -184,15 +192,13 @@ namespace
 	void Surveys()
 	{
 		using namespace SurveyText;
-		constexpr std::array<Known, 4>            kParts{ { { "illuminated", Version{ { 4, 0, 0 } }, true }, { "relight", Version{ { 5, 0, 0 } }, true },
+		constexpr std::array<Known, 4> kParts{ { { "illuminated", Version{ { 4, 0, 0 } }, true }, { "relight", Version{ { 5, 0, 0 } }, true },
 			{ "wards", Version{ { 5, 0, 0 } }, false }, { "creatures", Version{ { 2, 0, 0 } }, false } } };
-		constexpr std::array<std::string_view, 1> kFeatures{ "fading" };
-		constexpr Version                         kCoreNow{ { 1, 0, 0 } };
-		const auto                                manifest = [](std::string_view a_module, std::string_view a_title, std::string_view a_data) {
+		const auto                     manifest = [](std::string_view a_module, std::string_view a_title, std::string_view a_data) {
 			return std::format(R"({{"format":1,"module":"{}","title":"{}","dataVersion":"{}","needsCore":"1.0.0"}})", a_module, a_title, a_data);
 		};
 		const auto look = [&](std::span<const File> a_files, std::string_view a_switches = {}, std::span<const Old> a_old = {}) {
-			return Look({ a_files, a_switches, kParts, kCoreNow, kFeatures, a_old });
+			return Look({ a_files, a_switches, kParts, kCoreNow, kFeatures, a_old, false, 0 });
 		};
 		const auto state = [](const Survey& a_survey, std::string_view a_module) {
 			const auto it = std::ranges::find(a_survey.rows, a_module, &Row::module);
@@ -237,6 +243,8 @@ namespace
 		const auto              dup = look(twice);
 		CHECK(dup.rows.size() == 3 && state(dup, "wards") == State::kStaysOff && state(dup, "creatures") == State::kRuns);
 		CHECK(dup.problems.size() == 1 && dup.problems[0].find("\"wards\"") != std::string::npos);
+		// both rows of that part are marked, so neither carries a switch; the other mod's row is not
+		CHECK(std::ranges::count(dup.rows, true, &Row::twice) == 2 && !std::ranges::find(dup.rows, std::string_view("creatures"), &Row::module)->twice);
 
 		// data older than this core runs, a part this core does not have, a broken file, a file that could not be read
 		const std::vector<File> bad{ { "wards.json", manifest("wards", "Dynamic Wards", "4.3") }, { "arcane.json", manifest("arcane", "Arcane Overdrive", "1.0") },
@@ -289,6 +297,23 @@ namespace
 			}
 		}
 
+		// a Settings.ini that is there and cannot be read, and a folder with more files than a start reads: both said, and the
+		// survey carries the mark that keeps the file from being written over
+		const auto unread = Look({ two, {}, kParts, kCoreNow, kFeatures, {}, true, 3 });
+		CHECK(unread.switchesUnread && !both.switchesUnread && unread.problems.size() == 2 && state(unread, "wards") == State::kRuns);
+		if (unread.problems.size() == 2) {
+			CHECK(unread.problems[0] == "The Modules folder holds more files than are read at a start: 3 left unread.");
+			CHECK(unread.problems[1] == "Settings.ini could not be read, so every switch counts as on. The file is left as it is until it can be read.");
+		}
+		// the box holds its first line always and a further line only while the lines fit its room
+		Survey longOnes;
+		longOnes.problems.assign(5, std::string(250, 'x'));
+		CHECK(BoxText(longOnes).find("And 3 more.") != std::string::npos);
+		longOnes.problems.assign(2, std::string(900, 'x'));
+		CHECK(BoxText(longOnes).find("And 1 more.") != std::string::npos);
+		longOnes.problems.assign(7, std::string(20, 'x'));
+		CHECK(BoxText(longOnes).find("And 2 more.") != std::string::npos);
+
 		// many files, all hostile: nothing throws, every one is named
 		std::vector<File> flood;
 		for (int i = 0; i < 300; ++i) {
@@ -332,6 +357,8 @@ int main()
 	// each set names a floor: a set that ran fewer checks than it names was cut short
 	const int ran = gChecks - own;
 	Check(ran >= shared, "the shared check sets ran at least as many checks as they name", __LINE__);
-	std::printf("testcore: %d checks, %d failed (%d of the kernel's own, %d from the shared check sets, which name %d)\n", gChecks, gFails, own, ran, shared);
+	// the closing check above is the kernel's own too, so the two counts add up to the total
+	std::printf("testcore: %d checks, %d failed (%d of the kernel's own, %d from the shared check sets, which name %d)\n", gChecks, gFails, own + 1, ran,
+		shared);
 	return gFails ? 1 : 0;
 }

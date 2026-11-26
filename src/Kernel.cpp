@@ -65,18 +65,36 @@ namespace Core
 			return text;
 		}
 
-		// every *.json of the Modules folder, by name so two starts read them in one order
-		[[nodiscard]] std::vector<SurveyText::File> ReadManifests()
+		// a path's text as UTF-8 bytes in a plain string
+		[[nodiscard]] std::string Bytes(const std::filesystem::path& a_path)
+		{
+			const auto text = a_path.generic_u8string();
+			return { reinterpret_cast<const char*>(text.data()), text.size() };
+		}
+
+		// every *.json of the Modules folder (the ending in any case), by name so two starts read them in one order; a_leftOut
+		// counts the ones past the most a start reads
+		[[nodiscard]] std::vector<SurveyText::File> ReadManifests(std::size_t& a_leftOut)
 		{
 			std::vector<SurveyText::File> out;
 			std::error_code               ec;
-			for (std::filesystem::directory_iterator it(kModules, ec), end; !ec && it != end && out.size() < kMostFiles; it.increment(ec)) {
+			for (std::filesystem::directory_iterator it(kModules, ec), end; !ec && it != end; it.increment(ec)) {
 				const auto& path = it->path();
-				if (!it->is_regular_file(ec) || path.extension() != ".json") {
+				if (!SwitchesText::Same(Bytes(path.extension()), ".json")) {
 					continue;
 				}
-				const auto name = path.filename().generic_u8string();
-				out.push_back({ std::string(reinterpret_cast<const char*>(name.data()), name.size()), FileText(path) });
+				// its own error: one entry that cannot be looked at must not end the read of the folder
+				std::error_code entry;
+				const bool      file = it->is_regular_file(entry);
+				if (!entry && !file) {
+					continue;
+				}
+				if (out.size() >= kMostFiles) {
+					++a_leftOut;
+					continue;
+				}
+				// an entry that could not be looked at goes on as a file that could not be read, so it is named
+				out.push_back({ Bytes(path.filename()), entry ? std::nullopt : FileText(path) });
 			}
 			std::ranges::sort(out, {}, &SurveyText::File::name);
 			return out;
@@ -129,10 +147,16 @@ namespace Core
 
 	void LookAtData()
 	{
-		const auto files = ReadManifests();
-		const auto switches = FileText(kSwitches).value_or(std::string{});
+		std::size_t     leftOut = 0;
+		const auto      files = ReadManifests(leftOut);
+		const auto      read = FileText(kSwitches);
+		std::error_code ec;
+		// no file is every switch on; a file that is there and cannot be read is said so and never written over
+		const bool unread = !read && std::filesystem::exists(kSwitches, ec);
+		const auto switches = read.value_or(std::string{});
 		// an old version's plugin or files are looked for per part; no part is built in yet
-		auto survey = std::make_shared<const SurveyText::Survey>(SurveyText::Look({ files, switches, kParts, VersionNow(), kFeatures, {} }));
+		auto survey =
+			std::make_shared<const SurveyText::Survey>(SurveyText::Look({ files, switches, kParts, VersionNow(), kFeatures, {}, unread, leftOut }));
 		if (survey->rows.empty()) {
 			SKSE::log::info("no mod that needs {} is installed: nothing runs", ManifestText::kCore);
 		}
@@ -181,7 +205,8 @@ namespace Core
 				return false;
 			}
 			it->second = a_on;
-			if (state.saveQueued) {
+			// a file that could not be read at the start holds switches this session never saw: it is not written over
+			if (state.saveQueued || state.survey->switchesUnread) {
 				return true;
 			}
 			state.saveQueued = true;

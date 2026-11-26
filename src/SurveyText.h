@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <iterator>
 #include <optional>
 #include <span>
 #include <string>
@@ -54,6 +55,10 @@ namespace SurveyText
 		Version                           core{};
 		std::span<const std::string_view> features{};
 		std::span<const Old>              old{};
+		// Settings.ini is there but could not be read: every switch counts as on, and the file is not written over
+		bool switchesUnread{ false };
+		// files of the Modules folder left unread because it holds more than a start reads
+		std::size_t leftOut{ 0 };
 	};
 
 	enum class State : std::uint8_t
@@ -70,8 +75,9 @@ namespace SurveyText
 		std::string title{};
 		Version     dataVersion{};
 		State       state{ State::kStaysOff };
-		// whether this core has the part at all: only then does the row carry a switch
+		// whether this core has the part at all, and whether two files name it: a row carries a switch only when known and not twice
 		bool known{ false };
+		bool twice{ false };
 	};
 
 	struct Survey
@@ -81,6 +87,8 @@ namespace SurveyText
 		std::vector<std::string> problems{};
 		// every part this core has with its switch as the file gives it, in the parts' order: what a save writes back
 		std::vector<std::pair<std::string_view, bool>> switches{};
+		// Settings.ini could not be read: a switch moved this session is kept for the session and not written
+		bool switchesUnread{ false };
 	};
 
 	namespace Detail
@@ -169,10 +177,11 @@ namespace SurveyText
 		}
 		for (const auto& manifest : found) {
 			const auto* known = ManifestText::Find(a_in.parts, manifest.module);
-			Row         row{ manifest.module, manifest.title, manifest.dataVersion, State::kRuns, known != nullptr };
+			Row         row{ manifest.module, manifest.title, manifest.dataVersion, State::kRuns, known != nullptr, false };
 			const auto  verdict = ManifestText::Judge(manifest, a_in.parts, a_in.core, a_in.features);
 			if (std::ranges::find(twice, manifest.module) != twice.end()) {
 				row.state = State::kStaysOff;
+				row.twice = true;
 			} else if (verdict != Verdict::kRuns) {
 				row.state = State::kStaysOff;
 				out.problems.push_back(ManifestText::Line(manifest, verdict, a_in.parts, a_in.core, a_in.features));
@@ -185,6 +194,13 @@ namespace SurveyText
 			out.rows.push_back(std::move(row));
 		}
 		out.problems.insert(out.problems.end(), std::make_move_iterator(broken.begin()), std::make_move_iterator(broken.end()));
+		if (a_in.leftOut > 0) {
+			out.problems.push_back(std::format("The Modules folder holds more files than are read at a start: {} left unread.", a_in.leftOut));
+		}
+		if (a_in.switchesUnread) {
+			out.switchesUnread = true;
+			out.problems.emplace_back("Settings.ini could not be read, so every switch counts as on. The file is left as it is until it can be read.");
+		}
 		for (const auto& problem : file.problems) {
 			out.problems.push_back(std::format("Settings.ini, {}.", problem));
 		}
@@ -203,16 +219,22 @@ namespace SurveyText
 		return out;
 	}
 
-	// the one box of a start: the first lines in full, the rest counted. Empty when there is nothing to say
+	// the lines of a box may hold this many characters together: the game's message box has no scroll bar
+	inline constexpr std::size_t kBoxRoom = 600;
+
+	// the one box of a start: the first lines in full while they fit (the first always, a_most at most), the rest counted. Empty
+	// when there is nothing to say
 	[[nodiscard]] inline std::string BoxText(const Survey& a_survey, std::size_t a_most = 5)
 	{
 		if (a_survey.problems.empty()) {
 			return {};
 		}
 		std::string out = std::format("{}\n", ManifestText::kCore);
-		const auto  shown = std::min(a_most, a_survey.problems.size());
-		for (std::size_t i = 0; i < shown; ++i) {
-			out += std::format("\n- {}", a_survey.problems[i]);
+		std::size_t shown = 0;
+		std::size_t used = 0;
+		while (shown < std::min(a_most, a_survey.problems.size()) && (shown == 0 || used + a_survey.problems[shown].size() <= kBoxRoom)) {
+			used += a_survey.problems[shown].size();
+			out += std::format("\n- {}", a_survey.problems[shown++]);
 		}
 		if (const auto rest = a_survey.problems.size() - shown; rest > 0) {
 			out += std::format("\n\nAnd {} more.", rest);
