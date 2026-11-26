@@ -1,4 +1,4 @@
-# Illuminated - Core - SKSE plugin
+# Illuminated Core Framework - SKSE plugin
 
 Copyright (C) 2026 izzydoingit. GPL-3.0-or-later, see `LICENSE`.
 
@@ -34,7 +34,7 @@ released.
   "needsCore": "1.0.0",
   "needsCoreMax": "1.99.99",
   "needs": ["record-slots"],
-  "notice": "Illuminated - Spell Lighting NG 4.0 needs Illuminated - Core 1.0.0 or newer."
+  "notice": "Illuminated - Spell Lighting NG 4.0 needs Illuminated Core Framework 1.0.0 or newer."
 }
 ```
 `needsCoreMax`, `needs` and `notice` are optional. `notice` is the line shown when the installed core is too old for the data:
@@ -46,7 +46,7 @@ Library, with the VR build (a build on the wrong game stays off and says so in a
 the author.
 
 ## Settings
-SKSE Menu Framework > Illuminated - Core, saved to `Data\SKSE\Plugins\IlluminatedCore\Settings.ini`.
+SKSE Menu Framework > Illuminated Core Framework, saved to `Data\SKSE\Plugins\IlluminatedCore\Settings.ini`.
 
 ## Building
 `build.bat` (git, xmake 3 and the Visual Studio C++ tools): CommonLib at the pinned commit, the DLL, then the off-game tests

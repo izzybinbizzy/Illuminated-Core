@@ -1,4 +1,4 @@
-// Illuminated - Core - SKSE plugin
+// Illuminated Core Framework - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 //
 // This program is free software: you can redistribute it and/or modify it under the terms of the GNU
@@ -105,12 +105,12 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	info.logName = "IlluminatedCore";
 	SKSE::Init(a_skse, info);
 	// the wrong game: loaded but idle (a false here adds SKSE's own "exit game?" box over the guard's)
-	if (!RuntimeGuard::RightGame("Illuminated - Core", "Illuminated - Core", "Illuminated - Core - VR")) {
+	if (!RuntimeGuard::RightGame("Illuminated Core Framework", "Illuminated Core Framework", "Illuminated Core Framework - VR")) {
 		return true;
 	}
 	// the start line is the only work here that can throw (low memory): it never leaves the plugin
 	try {
-		SKSE::log::info("Illuminated - Core {} - one plugin for every Illuminated mod; a mod's part runs when its data is installed",
+		SKSE::log::info("Illuminated Core Framework {} - one plugin for every Illuminated mod; a mod's part runs when its data is installed",
 			ManifestText::Shown(Core::VersionNow()));
 	} catch (...) {
 	}

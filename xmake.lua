@@ -1,4 +1,4 @@
--- Illuminated - Core - SKSE plugin. GPL-3.0-or-later, see LICENSE.
+-- Illuminated Core Framework - SKSE plugin. GPL-3.0-or-later, see LICENSE.
 -- One plugin that holds the code of every Illuminated mod; each mod's own download carries only its data.
 set_xmakever("3.0.0")
 set_project("Illuminated")
@@ -33,7 +33,7 @@ target("Illuminated", function()
     add_rules("commonlibsse-ng.plugin", {
         name = "Illuminated",
         author = "izzydoingit",
-        description = "Illuminated - Core - the code of every Illuminated mod in one plugin",
+        description = "Illuminated Core Framework - the code of every Illuminated mod in one plugin",
     })
     add_files("src/*.cpp")
     add_headerfiles("src/*.h")

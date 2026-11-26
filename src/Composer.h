@@ -1,4 +1,4 @@
-// Illuminated - Core: one light's brightness as ONE product of everything that has a say on it
+// Illuminated Core Framework: one light's brightness as ONE product of everything that has a say on it
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //

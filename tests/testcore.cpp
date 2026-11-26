@@ -1,4 +1,4 @@
-// Illuminated - Core: the off-game tests (no game needed). Built and run under clang's address and undefined-behavior checkers.
+// Illuminated Core Framework: the off-game tests (no game needed). Built and run under clang's address and undefined-behavior checkers.
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //
@@ -162,19 +162,19 @@ namespace
 		};
 		CHECK(line(R"({"format":1,"module":"illuminated","dataVersion":"4.0","needsCore":"1.0"})").empty());
 		CHECK(line(R"({"format":1,"module":"illuminated","title":"Illuminated","dataVersion":"3.9","needsCore":"1"})") ==
-			  "Illuminated 3.9.0 is older than this Illuminated - Core runs (4.0.0 or newer). It stays off until it is updated.");
+			  "Illuminated 3.9.0 is older than this Illuminated Core Framework runs (4.0.0 or newer). It stays off until it is updated.");
 		CHECK(line(R"({"format":1,"module":"illuminated","title":"Illuminated","dataVersion":"4","needsCore":"1.3"})") ==
-			  "Illuminated 4.0.0 needs Illuminated - Core 1.3.0 or newer; this is 1.2.0. It stays off until Illuminated - Core is updated.");
+			  "Illuminated 4.0.0 needs Illuminated Core Framework 1.3.0 or newer; this is 1.2.0. It stays off until Illuminated Core Framework is updated.");
 		// the data mod's own line is used when the core is too old, and only then
 		CHECK(line(R"({"format":1,"module":"illuminated","dataVersion":"4","needsCore":"1.3","notice":"Its own line."})") == "Its own line.");
 		CHECK(line(R"({"format":1,"module":"illuminated","title":"Illuminated","dataVersion":"3","needsCore":"1","notice":"Its own line."})") !=
 			  "Its own line.");
 		CHECK(line(R"({"format":1,"module":"illuminated","title":"Illuminated","dataVersion":"4","needsCore":"1","needsCoreMax":"1.1"})") ==
-			  "Illuminated 4.0.0 was made for Illuminated - Core up to 1.1.0; this is 1.2.0. It stays off until it is updated.");
+			  "Illuminated 4.0.0 was made for Illuminated Core Framework up to 1.1.0; this is 1.2.0. It stays off until it is updated.");
 		CHECK(line(R"({"format":1,"module":"illuminated","title":"Illuminated","dataVersion":"4","needsCore":"1","needs":["object-lights"]})") ==
-			  "Illuminated 4.0.0 needs \"object-lights\", which this Illuminated - Core does not have. It stays off.");
+			  "Illuminated 4.0.0 needs \"object-lights\", which this Illuminated Core Framework does not have. It stays off.");
 		CHECK(line(R"({"format":1,"module":"arcane","dataVersion":"1","needsCore":"1"})") ==
-			  "arcane 1.0.0 names a part (\"arcane\") this Illuminated - Core does not have. It stays off.");
+			  "arcane 1.0.0 names a part (\"arcane\") this Illuminated Core Framework does not have. It stays off.");
 		// no line carries a personal word
 		for (const char* text : { R"({"format":1,"module":"illuminated","dataVersion":"3","needsCore":"1"})", R"({"format":1,"module":"x","dataVersion":"1","needsCore":"1"})",
 				 R"({"format":1,"module":"illuminated","dataVersion":"4","needsCore":"2"})" }) {
@@ -289,7 +289,7 @@ namespace
 		const auto has = [&](std::string_view a_text) {
 			return std::ranges::any_of(mixed.problems, [&](const std::string& a_line) { return a_line.find(a_text) != std::string::npos; });
 		};
-		CHECK(has("Dynamic Wards 4.3.0 is older than this Illuminated - Core runs (5.0.0 or newer)"));
+		CHECK(has("Dynamic Wards 4.3.0 is older than this Illuminated Core Framework runs (5.0.0 or newer)"));
 		CHECK(has("Arcane Overdrive 1.0.0 names a part (\"arcane\")"));
 		CHECK(has("\"broken.json\" is left out: the file is not one { } of settings."));
 		CHECK(has("\"locked.json\" could not be read. It is left out."));
@@ -303,18 +303,18 @@ namespace
 		const auto old = look(two, {}, kOld);
 		CHECK(state(old, "wards") == State::kStaysOff && state(old, "illuminated") == State::kRuns && old.problems.size() == 1);
 		CHECK(ItemAt(old.problems, 0) ==
-			  "A version of Dynamic Wards from before Illuminated - Core is still installed and keeps running (\"DynamicWards.dll\"). "
-			  "Its part of Illuminated - Core stays off until that version is removed.");
+			  "A version of Dynamic Wards from before Illuminated Core Framework is still installed and keeps running (\"DynamicWards.dll\"). "
+			  "Its part of Illuminated Core Framework stays off until that version is removed.");
 		// the old versions alone, with no new data: both named
 		const auto alone = look({}, {}, kOld);
 		CHECK(alone.problems.size() == 2 && alone.rows.empty());
 		CHECK(ItemAt(alone.problems, 1) ==
-			  "Files of Illuminated - Spell Lighting NG from a version before Illuminated - Core are installed (\"Illuminated.ini\"). "
-			  "That version does not run with Illuminated - Core: it has to be updated or removed.");
+			  "Files of Illuminated - Spell Lighting NG from a version before Illuminated Core Framework are installed (\"Illuminated.ini\"). "
+			  "That version does not run with Illuminated Core Framework: it has to be updated or removed.");
 
 		// the box: the first lines in full, the rest counted, where the whole list is; every line plain and free of personal words
 		const auto box = BoxText(mixed, 2);
-		CHECK(box.starts_with("Illuminated - Core\n\n- ") && box.find("And 4 more.") != std::string::npos);
+		CHECK(box.starts_with("Illuminated Core Framework\n\n- ") && box.find("And 4 more.") != std::string::npos);
 		CHECK(box.ends_with("The whole list is on the Problems found page of the menu and in IlluminatedCore.log."));
 		CHECK(BoxText(clash).find("And ") == std::string::npos);
 		for (const auto* survey : { &clash, &dup, &mixed, &old, &alone }) {

@@ -1,4 +1,4 @@
-// Illuminated - Core: a data mod's manifest as text - what it names, and whether this core runs it
+// Illuminated Core Framework: a data mod's manifest as text - what it names, and whether this core runs it
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //
@@ -28,7 +28,7 @@
 namespace ManifestText
 {
 	inline constexpr int              kFormat = 1;
-	inline constexpr std::string_view kCore = "Illuminated - Core";
+	inline constexpr std::string_view kCore = "Illuminated Core Framework";
 	inline constexpr std::size_t      kMostNeeds = 32;
 
 	// up to three parts (1, 1.2, 1.2.3); a part left out is 0

@@ -1,4 +1,4 @@
-// Illuminated - Core: the survey - which parts run this session, which stay off, and every line a player is told
+// Illuminated Core Framework: the survey - which parts run this session, which stay off, and every line a player is told
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //

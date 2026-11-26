@@ -1,4 +1,4 @@
-// Illuminated - Core - SKSE plugin
+// Illuminated Core Framework - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //

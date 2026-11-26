@@ -1,4 +1,4 @@
-// Illuminated - Core: its own small settings file as text - one switch per mod's part
+// Illuminated Core Framework: its own small settings file as text - one switch per mod's part
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //
@@ -126,7 +126,7 @@ namespace SwitchesText
 	[[nodiscard]] inline std::string Text(std::span<const std::pair<std::string_view, bool>> a_switches)
 	{
 		std::string out =
-			"; Illuminated - Core - which parts run. Read when the game starts; a change takes hold from the next start.\n"
+			"; Illuminated Core Framework - which parts run. Read when the game starts; a change takes hold from the next start.\n"
 			"; Each line: the part's name, then on or off. The same switches are on the menu's Installed page.\n\n[Modules]\n";
 		for (const auto& [module, on] : a_switches) {
 			out += std::format("{} = {}\n", module, on ? "on" : "off");

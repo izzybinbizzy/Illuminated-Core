@@ -1,4 +1,4 @@
-// Illuminated - Core - SKSE plugin
+// Illuminated Core Framework - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //
@@ -26,10 +26,10 @@ namespace Core
 		constexpr const char* kKey = "illuminatedcore";
 
 		constexpr const char* kDescriptor =
-			R"json({"description":"Illuminated - Core (one plugin for every Illuminated mod): its version, the lighting it found at data load (lighting: Community Shaders, ENB or Vanilla; lightingRead false before data load; inverseSquare and lightLimitFix as every light of the core is dressed by), the parts built into it, every installed mod's manifest with its data version and whether its part runs this session (runs, switched off, stays off), each part's switch for the next game start, every problem line found when the game started (the same lines as its message box, its Problems found page and IlluminatedCore.log), how many game functions hold a hook of the core (hookRowsWritten: 0 while no part needs one), and the hook table (hooks: per slot whether it is written and metered, and each handler in the order it runs with its part, when = before or after the game's own call, armed, runs since the last resetcounts, and usAvg / usMax in microseconds, both 0 until illuminatedcore.control action=meter switched the meter on). Read only.","inputSchema":{"type":"object","properties":{}},"readOnly":true})json";
+			R"json({"description":"Illuminated Core Framework (one plugin for every Illuminated mod): its version, the lighting it found at data load (lighting: Community Shaders, ENB or Vanilla; lightingRead false before data load; inverseSquare and lightLimitFix as every light of the core is dressed by), the parts built into it, every installed mod's manifest with its data version and whether its part runs this session (runs, switched off, stays off), each part's switch for the next game start, every problem line found when the game started (the same lines as its message box, its Problems found page and IlluminatedCore.log), how many game functions hold a hook of the core (hookRowsWritten: 0 while no part needs one), and the hook table (hooks: per slot whether it is written and metered, and each handler in the order it runs with its part, when = before or after the game's own call, armed, runs since the last resetcounts, and usAvg / usMax in microseconds, both 0 until illuminatedcore.control action=meter switched the meter on). Read only.","inputSchema":{"type":"object","properties":{}},"readOnly":true})json";
 
 		constexpr const char* kTool =
-			R"json({"description":"Illuminated - Core: action=switch sets one part's switch the way the menu's Installed page does (part = its id as inspect kind=illuminatedcore lists it under parts, value 1 on or 0 off); it is saved to Settings.ini and takes hold from the next game start; the reply is every part's switch after the change. action=meter (value 1 on or 0 off) has the hook table time every handler that runs: off, a running handler pays one read; a slot nobody armed never reaches the meter. action=resetcounts puts every handler's runs and times back to 0. Both reply with the hook table after the change. Read state with inspect kind=illuminatedcore.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["switch","meter","resetcounts"]},"part":{"type":"string"},"value":{"type":"number"}},"required":["action"]}})json";
+			R"json({"description":"Illuminated Core Framework: action=switch sets one part's switch the way the menu's Installed page does (part = its id as inspect kind=illuminatedcore lists it under parts, value 1 on or 0 off); it is saved to Settings.ini and takes hold from the next game start; the reply is every part's switch after the change. action=meter (value 1 on or 0 off) has the hook table time every handler that runs: off, a running handler pays one read; a slot nobody armed never reaches the meter. action=resetcounts puts every handler's runs and times back to 0. Both reply with the hook table after the change. Read state with inspect kind=illuminatedcore.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["switch","meter","resetcounts"]},"part":{"type":"string"},"value":{"type":"number"}},"required":["action"]}})json";
 
 		[[nodiscard]] const char* StateName(SurveyText::State a_state)
 		{
@@ -138,7 +138,7 @@ namespace Core
 				DevBenchGlue::Reply(a_sink, a_write, Act(DevBenchGlue::Args(a_args)));
 			} catch (...) {
 				try {
-					DevBenchGlue::Reply(a_sink, a_write, DevBenchGlue::Refusal("Illuminated - Core could not handle that"));
+					DevBenchGlue::Reply(a_sink, a_write, DevBenchGlue::Refusal("Illuminated Core Framework could not handle that"));
 				} catch (...) {
 				}
 			}

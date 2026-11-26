@@ -1,4 +1,4 @@
-// Illuminated - Core: the object-light library's data and choices, with nothing of the game in them
+// Illuminated Core Framework: the object-light library's data and choices, with nothing of the game in them
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //

@@ -1,4 +1,4 @@
-// Illuminated - Core: the off-game checks of DimmerKeys.h (no game needed), run by the core's own tests: call Run with the test's
+// Illuminated Core Framework: the off-game checks of DimmerKeys.h (no game needed), run by the core's own tests: call Run with the test's
 // check function and add kCount to its floor
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.

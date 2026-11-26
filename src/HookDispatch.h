@@ -1,4 +1,4 @@
-// Illuminated - Core: one hook on a game function, shared by every part that needs it
+// Illuminated Core Framework: one hook on a game function, shared by every part that needs it
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //

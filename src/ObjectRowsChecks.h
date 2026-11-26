@@ -1,4 +1,4 @@
-// Illuminated - Core: the off-game checks of ObjectRows.h (the object-light library's data and choices)
+// Illuminated Core Framework: the off-game checks of ObjectRows.h (the object-light library's data and choices)
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 

@@ -1,4 +1,4 @@
-// Illuminated - Core - SKSE plugin
+// Illuminated Core Framework - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //
@@ -12,7 +12,7 @@
 // THE TEST MODULE (one light, one slider, one dimmer - the kernel's design, step 4 of its order):
 //   action=light   hand=left|right   one light of the core's own beside that hand's magic node, dressed for the lighting found
 //   action=slider  hand=left|right value=<0 to 3>   its brightness share through the composer; written only when it moves
-//   action=dimmer  ... target=ours   the pulse on that light, its keys shares of the composer's product (a slider rewrites them)
+//   action=dimmer  ... target=own    the pulse on that light, its keys shares of the composer's product (a slider rewrites them)
 // Nothing here runs without a DevBench request, and nothing of it is in a shipped build.
 
 #ifdef CORE_PROBE
@@ -43,7 +43,7 @@ namespace Core
 		using DevBenchGlue::json;
 
 		constexpr const char* kTool =
-			R"json({"description":"Illuminated - Core, testing build only: tries the engine routes on the game's own lights. action=dimmer puts the game's light dimmer on the player's casting light of one hand (hand left or right; a spell must be drawn) and plays a pulse shape as baked keys (kind = healing, absorbhealth, absorbmagicka, absorbstamina, illusion, conjuration, alteration, magelight, ward, rune, or one of the four played as a 12-second loop: fire, frost, shock, poison; depth = how wide it swings, 1 as shipped, up to 2 to overshoot, in steps of 0.05; the reply gives depthAsked and the depth played). action=read gives that light's fade now. action=release stops the dimmer and puts the fade back. THE TEST MODULE (one light, one slider, one dimmer): action=light hangs one light of the core's own beside that hand's magic node (a spell must be drawn; candle gold, reach 300, dressed for the lighting found); action=slider value=<0 to 3> sets that light's brightness share through the composer (1 as made); action=dimmer target=ours plays the pulse on that light instead of the casting light; action=read reports both lights; action=release lets both go. action=frames (no hand) tries the shared hook on the player's update, only in a start with the file Data/SKSE/Plugins/IlluminatedCore/Probe Frames.txt in place (else written is false and a note says so): with count=N its handler counts N frames and switches itself off, without count it only reads - handlerRuns stands still while nothing is armed. Each reply is the state after the action, read on the main thread.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["dimmer","read","release","frames","light","slider"]},"count":{"type":"number"},"hand":{"type":"string","enum":["left","right"]},"kind":{"type":"string"},"depth":{"type":"number"},"target":{"type":"string","enum":["casting","ours"]},"value":{"type":"number"}},"required":["action"]}})json";
+			R"json({"description":"Illuminated Core Framework, testing build only: tries the engine routes on the game's own lights. action=dimmer puts the game's light dimmer on the player's casting light of one hand (hand left or right; a spell must be drawn) and plays a pulse shape as baked keys (kind = healing, absorbhealth, absorbmagicka, absorbstamina, illusion, conjuration, alteration, magelight, ward, rune, or one of the four played as a 12-second loop: fire, frost, shock, poison; depth = how wide it swings, 1 as shipped, up to 2 to overshoot, in steps of 0.05; the reply gives depthAsked and the depth played). action=read gives that light's fade now. action=release stops the dimmer and puts the fade back. THE TEST MODULE (one light, one slider, one dimmer): action=light hangs one light of the core's own beside that hand's magic node (a spell must be drawn; candle gold, reach 300, dressed for the lighting found); action=slider value=<0 to 3> sets that light's brightness share through the composer (1 as made); action=dimmer target=own plays the pulse on that light instead of the casting light; action=read reports both lights; action=release lets both go. action=frames (no hand) tries the shared hook on the player's update, only in a start with the file Data/SKSE/Plugins/IlluminatedCore/Probe Frames.txt in place (else written is false and a note says so): with count=N its handler counts N frames and switches itself off, without count it only reads - handlerRuns stands still while nothing is armed. Each reply is the state after the action, read on the main thread.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["dimmer","read","release","frames","light","slider"]},"count":{"type":"number"},"hand":{"type":"string","enum":["left","right"]},"kind":{"type":"string"},"depth":{"type":"number"},"target":{"type":"string","enum":["casting","own"]},"value":{"type":"number"}},"required":["action"]}})json";
 
 		// one hand's trial: the light the dimmer was put on, the dimmer, and the fade the light had before
 		struct Trial
@@ -107,7 +107,7 @@ namespace Core
 				return json{ { "ok", true }, { "light", false }, { "note", "no casting light on that hand: a spell has to be drawn" } };
 			}
 			return json{ { "ok", true }, { "light", true }, { "name", std::string(light->name.c_str() ? light->name.c_str() : "") },
-				{ "fade", light->GetLightRuntimeData().fade }, { "ours", trial.light.get() == light && trial.dimmer != nullptr },
+				{ "fade", light->GetLightRuntimeData().fade }, { "thisPart", trial.light.get() == light && trial.dimmer != nullptr },
 				{ "fadeBefore", trial.fade } };
 		}
 
@@ -277,7 +277,7 @@ namespace Core
 			own.light = light;
 			own.bs = bs;
 			json out{ { "ok", true } };
-			out["ours"] = OwnSeen(a_hand);
+			out["own"] = OwnSeen(a_hand);
 			return out;
 		}
 
@@ -306,7 +306,7 @@ namespace Core
 			if (action == "read") {
 				const auto now = DevBenchGlue::OnMainThread([slot]() {
 					json seen = Seen(slot);
-					seen["ours"] = OwnSeen(slot);
+					seen["own"] = OwnSeen(slot);
 					return seen;
 				});
 				return now ? *now : DevBenchGlue::NotRunYet();
@@ -316,7 +316,7 @@ namespace Core
 					Release(slot);
 					ReleaseOwn(slot);
 					json seen = Seen(slot);
-					seen["ours"] = OwnSeen(slot);
+					seen["own"] = OwnSeen(slot);
 					return seen;
 				});
 				return now ? *now : DevBenchGlue::NotRunYet();
@@ -340,7 +340,7 @@ namespace Core
 					const bool due = Composer::Set(own.record, Composer::Voice::kSetting, share);
 					const bool written = due && WriteOwn(own);
 					json       out{ { "ok", true }, { "written", written } };
-					out["ours"] = OwnSeen(slot);
+					out["own"] = OwnSeen(slot);
 					return out;
 				});
 				return now ? *now : DevBenchGlue::NotRunYet();
@@ -348,7 +348,7 @@ namespace Core
 			if (action != "dimmer") {
 				return DevBenchGlue::Refusal("unknown action '" + action + "'", json::array({ "dimmer", "read", "release", "frames", "light", "slider" }));
 			}
-			const bool ours = DevBenchGlue::Text(a_args, "target") == "ours";
+			const bool onOwn = DevBenchGlue::Text(a_args, "target") == "own";
 			const auto kind = Pulse::KindOf(DevBenchGlue::Text(a_args, "kind"));
 			const auto asked = DevBenchGlue::Number(a_args, "depth").value_or(1.0);
 			if (!kind || !(DimmerKeys::Period(*kind) > 0.0)) {
@@ -362,7 +362,7 @@ namespace Core
 			if (!loop) {
 				return DevBenchGlue::Refusal("that shape gave no keys");
 			}
-			if (ours) {
+			if (onOwn) {
 				const auto now = DevBenchGlue::OnMainThread([slot, loop, asked, depth]() {
 					auto& own = gOwn[slot];
 					if (!own.light) {
@@ -380,7 +380,7 @@ namespace Core
 					own.loop = loop;
 					Dress(own.light.get(), product, PeakOf(own.loop), false);
 					json out{ { "ok", true }, { "keys", loop->keys.size() }, { "period", loop->period }, { "depthAsked", asked }, { "depth", depth } };
-					out["ours"] = OwnSeen(slot);
+					out["own"] = OwnSeen(slot);
 					return out;
 				});
 				return now ? *now : DevBenchGlue::NotRunYet();

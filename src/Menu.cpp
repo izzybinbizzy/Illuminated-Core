@@ -1,8 +1,8 @@
-// Illuminated - Core - SKSE plugin
+// Illuminated Core Framework - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //
-// The SKSE Menu Framework section "Illuminated - Core": the Installed page (each installed mod, its version, whether its part
+// The SKSE Menu Framework section "Illuminated Core Framework": the Installed page (each installed mod, its version, whether its part
 // runs, and its switch for the next game start) and the Problems found page (every line the box at the main menu listed).
 // Each mod's own pages join this section in a folder of the mod's name when its part is built in.
 
@@ -73,11 +73,11 @@ namespace Core
 			const auto      switches = SwitchesNow();
 
 			Header(Icon::kList, T("Installed"));
-			TextColored(kMuted, "%s", Fill(T("Illuminated - Core {}"), ManifestText::Shown(VersionNow())).c_str());
+			TextColored(kMuted, "%s", Fill(T("Illuminated Core Framework {}"), ManifestText::Shown(VersionNow())).c_str());
 			if (survey->rows.empty()) {
 				// nothing installed, or files that could not be used: the second is sent on to the page that says why
 				MenuStyle::Note(survey->filesFound ? T("No mod's part runs. What was wrong when the game started is on the Problems found page.") :
-													 T("No mod that needs Illuminated - Core is installed. Nothing runs."));
+													 T("No mod that needs Illuminated Core Framework is installed. Nothing runs."));
 				return;
 			}
 			int index = 0;
@@ -94,7 +94,7 @@ namespace Core
 					if (Checkbox(name.c_str(), &on)) {
 						static_cast<void>(SetSwitch(row.module, on));
 					}
-					MenuStyle::Tip(T("Off, this mod's part of Illuminated - Core does not run. A change takes hold from the next game start."));
+					MenuStyle::Tip(T("Off, this mod's part of Illuminated Core Framework does not run. A change takes hold from the next game start."));
 					// what the next start does, only where it differs from this session
 					if (on != (row.state != SurveyText::State::kSwitchedOff)) {
 						SameLine(0.0f, 12.0f);
@@ -147,9 +147,9 @@ namespace Core
 			SKSE::log::warn("SKSE Menu Framework is not installed or did not load, so there is no menu; Settings.ini still applies");
 			return;
 		}
-		SKSEMenuFramework::SetSection(Translation::MenuName("Illuminated - Core"));
+		SKSEMenuFramework::SetSection(Translation::MenuName("Illuminated Core Framework"));
 		SKSEMenuFramework::AddSectionItem(Translation::MenuName("Installed"), Installed);
 		SKSEMenuFramework::AddSectionItem(Translation::MenuName("Problems found"), Problems);
-		SKSE::log::info("menu: the section Illuminated - Core added to SKSE Menu Framework {}", SKSEMenuFramework::GetMenuFrameworkVersion());
+		SKSE::log::info("menu: the section Illuminated Core Framework added to SKSE Menu Framework {}", SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 }

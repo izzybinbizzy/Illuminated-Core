@@ -1,4 +1,4 @@
-// Illuminated - Core: a light's pulse as keys the game's own dimmer plays
+// Illuminated Core Framework: a light's pulse as keys the game's own dimmer plays
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //

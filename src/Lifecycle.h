@@ -1,4 +1,4 @@
-// Illuminated - Core: the moments of a game session, handed to each part that is awake
+// Illuminated Core Framework: the moments of a game session, handed to each part that is awake
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //

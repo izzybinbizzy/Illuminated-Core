@@ -1,4 +1,4 @@
-// Illuminated - Core - SKSE plugin
+// Illuminated Core Framework - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file.
 //
@@ -185,7 +185,7 @@ namespace Core
 				SurveyText::Look({ files, switches, kParts, VersionNow(), kFeatures, {}, unread, leftOut, folderUnread }));
 			if (survey->rows.empty()) {
 				SKSE::log::info("{}", survey->filesFound ? "no file of the Modules folder could be used: nothing runs" :
-														   "no mod that needs Illuminated - Core is installed: nothing runs");
+														   "no mod that needs Illuminated Core Framework is installed: nothing runs");
 			}
 			for (const auto& row : survey->rows) {
 				SKSE::log::info("{} {}: {}", row.title, ManifestText::Shown(row.dataVersion),
