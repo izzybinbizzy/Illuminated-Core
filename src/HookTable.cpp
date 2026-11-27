@@ -1,0 +1,121 @@
+// Illuminated Core Framework - SKSE plugin
+// Copyright (C) 2026 izzydoingit
+// GPL-3.0-or-later; see the LICENSE file.
+//
+// The hook table: every game function the core hooks, in one place - the slot per game, the moment it is written, and what else
+// is known to sit on it. A row is written only when an awake part added a handler to its slot (Hooks.h, HookDispatch.h), so a
+// core with no part awake writes nothing: DevBench's read-out then lists every row as not written.
+
+#include "Hooks.h"
+
+#include <atomic>
+#include <cstddef>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace Core::Hooks
+{
+	namespace
+	{
+		// how many places were written; counted on the main thread, read by DevBench on its own
+		std::atomic<std::size_t> gWritten{ 0 };
+
+		// every slot of the table with the moment its row is written at, for what is done to all of them alike: a new slot is
+		// named here once, and its moment with it, so a row can never be written at a moment the table does not name
+		template <class F>
+		void ForEachSlot(F&& a_do)
+		{
+			a_do(gPlayerUpdate, "post-load");
+		}
+
+		// every slot of a moment sealed at it, written or not: a row may sit behind a test (one game version only), and a slot left
+		// unsealed would take a handler later that no thunk ever runs
+		void SealMoment(std::string_view a_moment)
+		{
+			ForEachSlot([a_moment](auto& a_slot, const char* a_its) {
+				if (a_moment == a_its && !a_slot.Sealed()) {
+					a_slot.Seal(Fault, Late);
+				}
+			});
+		}
+	}
+
+	void Fault(const char* a_part, const char* a_slot) noexcept
+	{
+		// the log line itself may throw (low memory): never out of a hook
+		try {
+			SKSE::log::error("{}: its handler on {} stopped by an error; its later errors there are not logged again", a_part, a_slot);
+		} catch (...) {
+		}
+	}
+
+	void Late(const char* a_part, const char* a_slot) noexcept
+	{
+		// the log line itself may throw (low memory): never out of the caller's add
+		try {
+			SKSE::log::warn("{}: a handler for {} was added after that hook's moment and is refused; a handler is added at post-load", a_part, a_slot);
+		} catch (...) {
+		}
+	}
+
+	void Wrote(const char* a_slot, const char* a_where) noexcept
+	{
+		gWritten.fetch_add(1, std::memory_order_relaxed);
+		// the thunk is in already: a log line that fails must not keep the rows after this one from being written
+		try {
+			SKSE::log::info("hook: {} written on {}", a_slot, a_where);
+		} catch (...) {
+		}
+	}
+
+	// post-load: after every other plugin's load call, so a row lands outside a hook another author wrote at load
+	void WriteAtPostLoad()
+	{
+		// once a frame in the world. Slot 0xAD on SE and AE, 0xAF on VR (0xAE there is another function)
+		static_cast<void>(WriteVTable<&gPlayerUpdate, 0>(RE::VTABLE_PlayerCharacter[0], REL::Relocate<std::size_t>(0xAD, 0xAD, 0xAF), "PlayerCharacter"));
+		SealMoment("post-load");
+	}
+
+	std::size_t WrittenCount() noexcept
+	{
+		return gWritten.load(std::memory_order_relaxed);
+	}
+
+	// data load: no row yet. A slot of this moment is written here and named in ForEachSlot with "data load"
+	void WriteAtDataLoad()
+	{
+		SealMoment("data load");
+	}
+
+	std::vector<Row> Rows()
+	{
+		std::vector<Row> rows;
+		ForEachSlot([&rows](const auto& a_slot, const char* a_moment) {
+			// a slot is sealed at its moment whether or not it was written: "written" is the thunk, the lists come with the seal
+			Row row{ a_slot.Name(), a_moment, a_slot.Written(), a_slot.Metered(), {} };
+			// read on DevBench's thread: the handler lists only once the slot is sealed, when they are complete and never change
+			if (!a_slot.Sealed()) {
+				rows.push_back(std::move(row));
+				return;
+			}
+			row.handlers.reserve(a_slot.Handlers());
+			for (std::size_t i = 0; i < a_slot.Handlers(); ++i) {
+				const auto seen = a_slot.At(i);
+				row.handlers.push_back({ seen.part, seen.before, seen.instead, seen.armed, seen.runs, seen.usAvg, seen.usMax });
+			}
+			rows.push_back(std::move(row));
+		});
+		return rows;
+	}
+
+	void Meter(bool a_on) noexcept
+	{
+		ForEachSlot([a_on](auto& a_slot, const char*) { a_slot.Meter(a_on); });
+	}
+
+	void ResetCounts() noexcept
+	{
+		ForEachSlot([](auto& a_slot, const char*) { a_slot.ResetCounts(); });
+	}
+}
