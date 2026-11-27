@@ -24,21 +24,29 @@ namespace Core
 
 	namespace
 	{
-		std::atomic<std::uint8_t> gFound{ static_cast<std::uint8_t>(GameLighting::Lighting::kVanilla) };
-		// CommunityShaders.dll loaded: Light Limit Fix reads every light's first words
-		std::atomic<bool> gLightLimitFix{ false };
-		// ... and a shader of it draws inverse square
-		std::atomic<bool> gInverseSquare{ false };
-		std::atomic<bool> gRead{ false };
+		// the whole answer in one word, written once and read once, so a reader on another thread (DevBench's) never sees half of
+		// it: bits 0-1 the lighting, bit 2 Light Limit Fix reads every light's first words (CommunityShaders.dll loaded), bit 3 a
+		// shader of it draws inverse square, bit 4 read
+		constexpr std::uint8_t    kLightLimitFix = 1 << 2;
+		constexpr std::uint8_t    kInverseSquare = 1 << 3;
+		constexpr std::uint8_t    kRead = 1 << 4;
+		std::atomic<std::uint8_t> gState{ static_cast<std::uint8_t>(GameLighting::Lighting::kVanilla) };
+	}
+
+	LightingState LightingNow()
+	{
+		const auto state = gState.load(std::memory_order_acquire);
+		const auto found = static_cast<std::uint8_t>(state & 3);
+		return { found, GameLighting::Name(static_cast<GameLighting::Lighting>(found)), (state & kRead) != 0, (state & kLightLimitFix) != 0,
+			(state & kInverseSquare) != 0 };
 	}
 
 	void ReadLighting()
 	{
 		const auto found = GameLighting::Read();
-		gLightLimitFix = found.communityShaders;
-		gInverseSquare = found.inverseSquare;
-		gFound = static_cast<std::uint8_t>(found.lighting);
-		gRead = true;
+		gState.store(static_cast<std::uint8_t>(static_cast<std::uint8_t>(found.lighting) | (found.communityShaders ? kLightLimitFix : 0) |
+											   (found.inverseSquare ? kInverseSquare : 0) | kRead),
+			std::memory_order_release);
 		const auto lines = GameLighting::Describe(found);
 		SKSE::log::info("{}", lines.info);
 		for (const auto& warning : lines.warnings) {
@@ -46,13 +54,13 @@ namespace Core
 		}
 	}
 
-	std::uint8_t LightingFound() { return gFound.load(); }
+	std::uint8_t LightingFound() { return LightingNow().found; }
 
-	const char* LightingName() { return GameLighting::Name(static_cast<GameLighting::Lighting>(gFound.load())); }
+	const char* LightingName() { return LightingNow().name; }
 
-	bool LightingRead() { return gRead.load(); }
+	bool LightingRead() { return LightingNow().read; }
 
-	bool InverseSquare() { return gInverseSquare.load(); }
+	bool InverseSquare() { return LightingNow().inverseSquare; }
 
-	bool LightLimitFix() { return gLightLimitFix.load(); }
+	bool LightLimitFix() { return LightingNow().lightLimitFix; }
 }

@@ -269,7 +269,8 @@ namespace LightKit
 	[[nodiscard]] inline float DimmerShare(float a_t0, float a_v0, float a_t1, float a_v1, float a_ranFor, bool a_fresh) noexcept
 	{
 		const float top = (std::max)(a_v0, a_v1);
-		if (!std::isfinite(a_v0) || !std::isfinite(a_v1)) {
+		// a bad key time reads 1 as well: a NaN span would leave k at 1 and clamp a fading-out light to 0 (CodeRabbit on the core's PR 1)
+		if (!std::isfinite(a_v0) || !std::isfinite(a_v1) || !std::isfinite(a_t0) || !std::isfinite(a_t1)) {
 			return 1.0f;
 		}
 		if (!(top > 0.0f)) {

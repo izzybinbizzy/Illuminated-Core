@@ -15,7 +15,7 @@ namespace ObjectRowsChecks
 	using Check = void (*)(bool a_ok, const char* a_what, int a_line);
 
 	// the checks one Run makes (raise it when checks are added)
-	inline constexpr int kCount = 89;
+	inline constexpr int kCount = 91;
 
 #define CORE_CHECK(...) a_check((__VA_ARGS__), #__VA_ARGS__, __LINE__)
 
@@ -122,6 +122,11 @@ namespace ObjectRowsChecks
 		CORE_CHECK(formNote.rows.size() == 1 && formNote.faults.empty());
 		const auto keptWhole = Read("format=1\n[object]\nmodel=a#b;c.nif\ncolor=1,2,3\n");
 		CORE_CHECK(keptWhole.rows.size() == 1 && keptWhole.rows[0].models.size() == 1 && keptWhole.rows[0].models[0] == "a#b;c.nif");
+		// a note right after the = is a note, not the value: the block is named for its missing model
+		const auto laterModel = Read("format=1\n[object]\nmodel= ; add it later\ncolor=1,2,3\n");
+		CORE_CHECK(laterModel.rows.empty() && laterModel.faults.size() == 1);
+		// a plugin's name holds no character Windows refuses; a space is fine
+		CORE_CHECK(!ReadForm("0x55~Bad|Name.esp") && !ReadForm("0x55~a?b.esp") && ReadForm("0x55~Some Mod.esp").has_value());
 		// the three spellings of a form
 		CORE_CHECK(ReadForm(" 0x00ABC~Skyrim.esm ") == FormText{ "skyrim.esm", 0xABC, {} } && ReadForm("Skyrim.ESM|ABC") == FormText{ "skyrim.esm", 0xABC, {} });
 		CORE_CHECK(ReadForm("DweLamp01") == FormText{ {}, 0, "dwelamp01" } && !ReadForm("") && !ReadForm("0x1~") && !ReadForm("a.txt|0x1") && !ReadForm("0xZZ~a.esp"));

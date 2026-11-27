@@ -79,6 +79,33 @@ namespace GameLighting
 
 	namespace Detail
 	{
+		// whether a shader's CODE names a_word: text in // and /* */ comments is left out, so a note such as "InverseSquare is not
+		// supported" in a linear shader never turns inverse square on (CodeRabbit on the core's PR 1). Game-free
+		[[nodiscard]] inline bool CodeHolds(std::string_view a_text, std::string_view a_word)
+		{
+			std::string code;
+			code.reserve(a_text.size());
+			for (std::size_t i = 0; i < a_text.size(); ++i) {
+				if (a_text.substr(i, 2) == "//") {
+					i = a_text.find('\n', i);
+					if (i == std::string_view::npos) {
+						break;
+					}
+					code.push_back('\n');
+				} else if (a_text.substr(i, 2) == "/*") {
+					const auto end = a_text.find("*/", i + 2);
+					if (end == std::string_view::npos) {
+						break;
+					}
+					i = end + 1;
+					code.push_back(' ');
+				} else {
+					code.push_back(a_text[i]);
+				}
+			}
+			return code.find(a_word) != std::string::npos;
+		}
+
 		// false when the file is not there; nullopt when it is there but could not be read
 		[[nodiscard]] inline std::optional<bool> FileNames(const std::filesystem::path& a_file, std::string_view a_word)
 		{
@@ -100,15 +127,15 @@ namespace GameLighting
 			if (static_cast<std::uintmax_t>(in.gcount()) != size) {
 				return std::nullopt;
 			}
-			return text.find(a_word) != std::string::npos;
+			return CodeHolds(text, a_word);
 		}
 
-		// whether a file is there; an error other than "not found" leaves a_unread set
+		// whether a file is there - a regular file, never a folder of that name; an error other than "not found" leaves a_unread set
 		[[nodiscard]] inline bool There(const std::filesystem::path& a_file, bool& a_unread)
 		{
 			std::error_code ec;
-			const bool      there = std::filesystem::exists(a_file, ec);
-			a_unread = a_unread || static_cast<bool>(ec);
+			const bool      there = std::filesystem::is_regular_file(a_file, ec);
+			a_unread = a_unread || (static_cast<bool>(ec) && ec != std::errc::no_such_file_or_directory);
 			return there;
 		}
 

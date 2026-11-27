@@ -38,6 +38,8 @@ namespace Core::Hooks
 	// a handler let an exception out (one log line per handler), and a place was written (logged, counted for DevBench)
 	void Fault(const char* a_part, const char* a_slot) noexcept;
 	void Wrote(const char* a_slot, const char* a_where) noexcept;
+	// a handler added after its slot's moment: refused, and one log line names the part and the slot
+	void Late(const char* a_part, const char* a_slot) noexcept;
 	// the rows of the post-load moment, each written only when its slot has a handler. Called at SKSE's post-post-load, once
 	// every plugin's post-load handlers are in. Main thread
 	void WriteAtPostLoad();
@@ -85,7 +87,7 @@ namespace Core::Hooks
 	{
 		using Mine = Thunk<Slot, Place>;
 		if (!Slot->Sealed()) {
-			Slot->Seal(Fault);
+			Slot->Seal(Fault, Late);
 		}
 		if (!Slot->Wanted() || Mine::original) {
 			return false;

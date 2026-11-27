@@ -62,6 +62,8 @@ namespace HookDispatch
 
 	// called once per handler, the first time it lets an exception out: the part's name and the slot's
 	using Fault = void (*)(const char* a_part, const char* a_slot) noexcept;
+	// called each time a handler is added after its slot was sealed: the part's name and the slot's (refused, never taken silently)
+	using Refused = void (*)(const char* a_part, const char* a_slot) noexcept;
 
 	namespace Detail
 	{
@@ -139,7 +141,7 @@ namespace HookDispatch
 		// a handler that runs before the game's own call. Refused (an empty switch) once the hook is written or the list is full
 		[[nodiscard]] Armed AddBefore(const char* a_part, Before a_handler) noexcept
 		{
-			if (Sealed() || !a_handler || beforeCount >= kMost) {
+			if (RefusedLate(a_part) || !a_handler || beforeCount >= kMost) {
 				return {};
 			}
 			before[beforeCount].function = a_handler;
@@ -150,7 +152,7 @@ namespace HookDispatch
 		// a handler that runs after the game's own call
 		[[nodiscard]] Armed AddAfter(const char* a_part, After a_handler) noexcept
 		{
-			if (Sealed() || !a_handler || afterCount >= kMost) {
+			if (RefusedLate(a_part) || !a_handler || afterCount >= kMost) {
 				return {};
 			}
 			after[afterCount].function = a_handler;
@@ -163,7 +165,7 @@ namespace HookDispatch
 		// nothing (what it changed before the throw stays changed)
 		[[nodiscard]] Armed AddInstead(const char* a_part, Instead a_handler) noexcept
 		{
-			if (Sealed() || !a_handler || insteadCount >= kMost) {
+			if (RefusedLate(a_part) || !a_handler || insteadCount >= kMost) {
 				return {};
 			}
 			instead[insteadCount].function = a_handler;
@@ -178,10 +180,11 @@ namespace HookDispatch
 		[[nodiscard]] const char* Name() const noexcept { return name; }
 
 		// called at the slot's install moment, written or not: from here on no handler is added, so one added later is refused
-		// (its part is told by the empty switch) and never accepted onto a slot that has no thunk
-		void Seal(Fault a_fault) noexcept
+		// (its part is told by the empty switch and a_refused says so once per refusal) and never accepted onto a slot that has no thunk
+		void Seal(Fault a_fault, Refused a_refused = nullptr) noexcept
 		{
 			fault = a_fault;
+			refused = a_refused;
 			sealed.store(true, std::memory_order_release);
 		}
 
@@ -278,6 +281,18 @@ namespace HookDispatch
 		}
 
 	private:
+		// true when the slot is sealed: the add is refused, and the table is told who asked too late
+		[[nodiscard]] bool RefusedLate(const char* a_part) const noexcept
+		{
+			if (!Sealed()) {
+				return false;
+			}
+			if (refused) {
+				refused(a_part ? a_part : "", name);
+			}
+			return true;
+		}
+
 		static constexpr std::uint32_t kBeforeBits = (std::uint32_t{ 1 } << kMost) - 1;
 
 		// true when an Instead handler answered the call; before and after handlers never answer
@@ -335,6 +350,7 @@ namespace HookDispatch
 
 		const char*                                 name;
 		Fault                                       fault{ nullptr };
+		Refused                                     refused{ nullptr };
 		std::atomic<std::uint32_t>                  armed{ 0 };
 		std::atomic<bool>                           metered{ false };
 		std::array<Detail::Handler<Before>, kMost>  before{};

@@ -16,6 +16,8 @@
 //   point=0,0,24                   where it hangs in the object's own frame (any number: one light per point)
 //   pulse=fire / pulsedepth=0.5    a pulse shape of the kernel's (Pulse.h), played by the game's own dimmer: fire, frost, shock
 //                                  and poison as a 12-second loop (his 927), the others as their own loop
+// A note may follow a value: it starts at a # or ; with a space or tab before it, so a name or path holding " #" is cut there;
+// a line starting with # or ; is a note as a whole (the wiki's Patch-files page says the same).
 // Learned from Light Placer (its key and flag names, powerof3, GPL-3.0) and XEMI (the last file naming a thing wins, Mini,
 // GPL-3.0) - their wording and methods, none of their code (his 928). A fault is never silent: every line left out is named by
 // its line number, the word and, for an unknown key, the key it most likely misspells (875).
@@ -274,7 +276,11 @@ namespace ObjectRows
 		[[nodiscard]] inline bool PluginName(std::string_view a_name)
 		{
 			const auto lower = Lower(a_name);
-			return lower.size() > 4 && (lower.ends_with(".esp") || lower.ends_with(".esm") || lower.ends_with(".esl"));
+			// a name Windows could never give a file names no plugin: refused, so the row's fault says so
+			const bool file = std::ranges::none_of(a_name, [](char a_c) {
+				return static_cast<unsigned char>(a_c) < 0x20 || std::string_view("<>:\"/\\|?*").find(a_c) != std::string_view::npos;
+			});
+			return file && lower.size() > 4 && (lower.ends_with(".esp") || lower.ends_with(".esm") || lower.ends_with(".esl"));
 		}
 
 		// a block's opening line: [object] in any case, spaces inside the brackets and a # or ; note after it allowed
@@ -450,7 +456,7 @@ namespace ObjectRows
 				continue;
 			}
 			const auto rawKey = Detail::Trim(line.substr(0, equals));
-			const auto value = Detail::NoNote(Detail::Trim(line.substr(equals + 1)));
+			const auto value = Detail::Trim(Detail::NoNote(line.substr(equals + 1)));
 			if (!row) {
 				const auto key = Detail::Lower(rawKey);
 				const auto n = Detail::Integer(value);

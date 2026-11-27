@@ -20,11 +20,12 @@ namespace HookDispatchChecks
 	using Check = void (*)(bool a_ok, const char* a_what, int a_line);
 
 	// the checks one Run makes (raise it when checks are added)
-	inline constexpr int kCount = 59;
+	inline constexpr int kCount = 60;
 
 	// what ran, in order: the stand-in for the game's function writes "game", each handler its own word
 	inline std::string gRan;
 	inline std::string gFaults;
+	inline std::string gRefused;
 
 	inline int Game(int a_value)
 	{
@@ -49,6 +50,11 @@ namespace HookDispatchChecks
 		const auto end = std::chrono::steady_clock::now() + std::chrono::microseconds(200);
 		while (std::chrono::steady_clock::now() < end) {
 		}
+	}
+
+	inline void Refuse(const char* a_part, const char* a_slot) noexcept
+	{
+		gRefused += std::string(a_part) + "@" + a_slot + " ";
 	}
 
 	inline void Fault(const char* a_part, const char* a_slot) noexcept
@@ -241,6 +247,12 @@ namespace HookDispatchChecks
 		CORE_CHECK(unwritten.Sealed() && !unwritten.Written() && !unwritten.AddAfter("late", [](int&, int) {}) && !unwritten.Wanted());
 		unwritten.MarkWritten();
 		CORE_CHECK(unwritten.Written() && unwritten.Handlers() == 0);
+
+		// a handler added after the seal is refused and the table is told, once per refusal, who asked too late
+		static IntSlot sealedLate("sealed late");
+		sealedLate.Seal(Fault, Refuse);
+		gRefused.clear();
+		CORE_CHECK(!sealedLate.AddBefore("p", [](int) {}) && !sealedLate.AddAfter("q", [](int&, int) {}) && gRefused == "p@sealed late q@sealed late ");
 
 		// an instead handler runs after the before handlers with the arguments by reference: a change reaches the game's call and
 		// the after handlers (the audit's C4: a ward's art swapped before the game loads it)

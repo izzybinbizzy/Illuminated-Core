@@ -35,7 +35,7 @@ namespace Core::Hooks
 		{
 			ForEachSlot([a_moment](auto& a_slot, const char* a_its) {
 				if (a_moment == a_its && !a_slot.Sealed()) {
-					a_slot.Seal(Fault);
+					a_slot.Seal(Fault, Late);
 				}
 			});
 		}
@@ -46,6 +46,15 @@ namespace Core::Hooks
 		// the log line itself may throw (low memory): never out of a hook
 		try {
 			SKSE::log::error("{}: its handler on {} stopped by an error; its later errors there are not logged again", a_part, a_slot);
+		} catch (...) {
+		}
+	}
+
+	void Late(const char* a_part, const char* a_slot) noexcept
+	{
+		// the log line itself may throw (low memory): never out of the caller's add
+		try {
+			SKSE::log::warn("{}: a handler for {} was added after that hook's moment and is refused; a handler is added at post-load", a_part, a_slot);
 		} catch (...) {
 		}
 	}

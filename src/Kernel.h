@@ -101,6 +101,16 @@ namespace Core
 	// CommunityShaders.dll is loaded, so Light Limit Fix reads every light's first words; and a shader of it draws inverse square
 	[[nodiscard]] bool LightLimitFix();
 	[[nodiscard]] bool InverseSquare();
+	// all of the above from one read, for a reader that shows them together (DevBench); any thread
+	struct LightingState
+	{
+		std::uint8_t found{ 2 };
+		const char*  name{ "" };
+		bool         read{ false };
+		bool         lightLimitFix{ false };
+		bool         inverseSquare{ false };
+	};
+	[[nodiscard]] LightingState LightingNow();
 
 	// ------------------------------------------------------------------ Menu.cpp / DevBench.cpp
 	void RegisterMenu();

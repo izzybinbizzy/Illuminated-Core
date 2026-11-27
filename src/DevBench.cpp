@@ -83,8 +83,9 @@ namespace Core
 				rows.push_back({ { "part", row.module }, { "title", row.title }, { "dataVersion", ManifestText::Shown(row.dataVersion) },
 					{ "state", StateName(row.state) }, { "known", row.known }, { "namedTwice", row.twice } });
 			}
-			return json{ { "version", ManifestText::Shown(VersionNow()) }, { "lighting", LightingName() }, { "lightingRead", LightingRead() },
-				{ "inverseSquare", InverseSquare() }, { "lightLimitFix", LightLimitFix() }, { "parts", std::move(parts) }, { "installed", std::move(rows) },
+			const auto lighting = LightingNow();
+			return json{ { "version", ManifestText::Shown(VersionNow()) }, { "lighting", lighting.name }, { "lightingRead", lighting.read },
+				{ "inverseSquare", lighting.inverseSquare }, { "lightLimitFix", lighting.lightLimitFix }, { "parts", std::move(parts) }, { "installed", std::move(rows) },
 				{ "switchesNextStart", SwitchesJson() }, { "settingsFileUnread", survey->switchesUnread }, { "problems", survey->problems },
 				{ "hookRowsWritten", Hooks::WrittenCount() }, { "hooks", HooksJson() } };
 		}
