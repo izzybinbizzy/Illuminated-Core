@@ -51,9 +51,13 @@ namespace
 				Core::OfferProbe();
 			});
 #endif
-			// each awake part adds its handlers to the slots it needs, then the rows that have a handler are written
+			// each awake part adds its handlers to the slots it needs; the rows are written at post-post-load
 			Core::Tell(Moment::kPostLoad, true);
-			// every other plugin's load call is done: a row written now lands outside a hook another author wrote at load
+			break;
+		case SKSE::MessagingInterface::kPostPostLoad:
+			// every plugin's post-load call is done too: a handler another plugin adds at its own post-load (an API caller loaded
+			// after the core) is in before the seal, and a row written now lands outside a hook another author wrote at load or
+			// post-load
 			Core::Guarded("the hooks of post-load", []() { Core::Hooks::WriteAtPostLoad(); });
 			break;
 		case SKSE::MessagingInterface::kDataLoaded:
@@ -63,6 +67,8 @@ namespace
 			Core::Guarded("the translation file", []() { SKSE::log::info("{}", Translation::Load("IlluminatedCore")); });
 			Core::Guarded("the menu section", []() { Core::RegisterMenu(); });
 			Core::Tell(Moment::kDataLoad, true);
+			// the parts' data-load handlers are in: the rows of this moment are written
+			Core::Guarded("the hooks of data load", []() { Core::Hooks::WriteAtDataLoad(); });
 			// what has to see every other plugin's data-load work runs one main-thread task later; no task with no part awake
 			if (Core::AnyAwake() && !Core::Later("after every plugin's data load", []() { Core::Tell(Moment::kAfterAllPlugins, true); })) {
 				SKSE::log::warn("the moment after every plugin's data load could not be queued: the parts' work there did not run");
@@ -103,6 +109,12 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	// its own log file: the name Illuminated.log stays the Illuminated mod's part's
 	SKSE::InitInfo info{};
 	info.logName = "IlluminatedCore";
+	// call-site rows are written long after this, and nobody knows yet which parts will wake: room for every call-site row the
+	// table names is asked for here, where SKSE hands it out (none while the table has none). A bare name, so the build's
+	// trampoline check reads the request
+	using Core::Hooks::kTrampolineBytes;
+	info.trampoline = kTrampolineBytes != 0;
+	info.trampolineSize = kTrampolineBytes;
 	SKSE::Init(a_skse, info);
 	// the wrong game: loaded but idle (a false here adds SKSE's own "exit game?" box over the guard's)
 	if (!RuntimeGuard::RightGame("Illuminated Core Framework", "Illuminated Core Framework", "Illuminated Core Framework - VR")) {
@@ -114,8 +126,14 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 			ManifestText::Shown(Core::VersionNow()));
 	} catch (...) {
 	}
-	if (const auto* messaging = SKSE::GetMessagingInterface()) {
-		messaging->RegisterListener(OnMessage);
+	// a refused listener means no moment ever comes: no survey, no hook, no part. The log says so once rather than the core
+	// idling with no word of why
+	const auto* messaging = SKSE::GetMessagingInterface();
+	if (!messaging || !messaging->RegisterListener(OnMessage)) {
+		try {
+			SKSE::log::critical("SKSE's messages could not be listened to: no part of the core runs this session");
+		} catch (...) {
+		}
 	}
 	return true;
 }

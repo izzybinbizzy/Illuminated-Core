@@ -331,15 +331,23 @@ namespace LightKit
 	inline void Guarded(const char* a_where, F&& a_work) noexcept
 	{
 		static std::atomic<bool> told{ false };
+		// the log line itself can throw (low memory, the very case that threw), and a throw out of this noexcept function ends the
+		// game: each line is guarded too
 		try {
 			std::forward<F>(a_work)();
 		} catch (const std::exception& e) {
 			if (!told.exchange(true)) {
-				SKSE::log::error("{}: stopped by an error ({}); later ones here are skipped quietly", a_where, e.what());
+				try {
+					SKSE::log::error("{}: stopped by an error ({}); later ones here are skipped quietly", a_where, e.what());
+				} catch (...) {
+				}
 			}
 		} catch (...) {
 			if (!told.exchange(true)) {
-				SKSE::log::error("{}: stopped by an unknown error; later ones here are skipped quietly", a_where);
+				try {
+					SKSE::log::error("{}: stopped by an unknown error; later ones here are skipped quietly", a_where);
+				} catch (...) {
+				}
 			}
 		}
 	}

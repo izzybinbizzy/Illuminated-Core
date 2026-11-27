@@ -59,10 +59,13 @@ namespace Core
 			for (const auto& row : Hooks::Rows()) {
 				json handlers = json::array();
 				for (const auto& handler : row.handlers) {
-					handlers.push_back({ { "part", handler.part }, { "when", handler.before ? "before" : "after" }, { "armed", handler.armed },
+					handlers.push_back({ { "part", handler.part }, { "when", handler.before ? "before" : handler.instead ? "instead" :
+																														   "after" },
+						{ "armed", handler.armed },
 						{ "runs", handler.runs }, { "usAvg", handler.usAvg }, { "usMax", handler.usMax } });
 				}
-				out.push_back({ { "slot", row.slot }, { "written", row.written }, { "metered", row.metered }, { "handlers", std::move(handlers) } });
+				out.push_back({ { "slot", row.slot }, { "moment", row.moment }, { "written", row.written }, { "metered", row.metered },
+					{ "handlers", std::move(handlers) } });
 			}
 			return out;
 		}

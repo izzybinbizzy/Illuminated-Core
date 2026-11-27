@@ -129,7 +129,8 @@ namespace ManifestText
 			return Problem("the file is not one { } of settings");
 		}
 		const auto format = root.find("format");
-		if (format == root.end() || !format->is_number_integer() || format->get<std::int64_t>() != kFormat) {
+		// 1 and 1.0 are the same format, as ObjectRows reads format=1.0
+		if (format == root.end() || !format->is_number() || format->get<double>() != static_cast<double>(kFormat)) {
 			return Problem(std::format("its \"format\" is not {}", kFormat));
 		}
 		Manifest out;
@@ -137,6 +138,9 @@ namespace ManifestText
 		if (!module || !Plain(*module, 32)) {
 			return Problem("it names no \"module\"");
 		}
+		// a part's id in any case, as Settings.ini reads its key: "Wards" is the wards part, never an unknown module. Plain text
+		// is ASCII, so a letter at a time
+		std::ranges::transform(*module, module->begin(), [](char a_c) { return a_c >= 'A' && a_c <= 'Z' ? static_cast<char>(a_c - 'A' + 'a') : a_c; });
 		out.module = std::move(*module);
 		auto title = Detail::Text(root, "title");
 		out.title = title && Plain(*title, 80) ? std::move(*title) : out.module;

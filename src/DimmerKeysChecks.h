@@ -18,7 +18,7 @@ namespace DimmerKeysChecks
 	using Check = void (*)(bool a_ok, const char* a_what, int a_line);
 
 	// the checks one Run makes (raise it when checks are added)
-	inline constexpr int kCount = 2721;
+	inline constexpr int kCount = 2722;
 
 // a check may hold a braced list with commas of its own
 #define CORE_CHECK(...) a_check((__VA_ARGS__), #__VA_ARGS__, __LINE__)
@@ -163,6 +163,14 @@ namespace DimmerKeysChecks
 			climbing = climbing && jagged.keys[i].time > jagged.keys[i - 1].time;
 		}
 		CORE_CHECK(jagged.keys.size() <= kMostKeys && jagged.keys.size() > kMostKeys / 2 && climbing);
+		// a depth first seen after 64 others (a slider swept past them) is kept too: the oldest kept loop makes room, so the next
+		// light at that depth is not traced anew (the audit's C9)
+		const double healing = Period(Kind::kHealing);
+		for (int i = 0; i < 70; ++i) {
+			static_cast<void>(Detail::Traced(Kind::kHealing, 0.3f + 0.001f * static_cast<float>(i), healing));
+		}
+		const auto late = Detail::Traced(Kind::kHealing, 0.95f, healing);
+		CORE_CHECK(late && late == Detail::Traced(Kind::kHealing, 0.95f, healing));
 	}
 
 #undef CORE_CHECK

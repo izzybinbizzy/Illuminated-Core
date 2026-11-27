@@ -5,7 +5,10 @@
 // Before the core, each of our plugins wrote its own hook on a game slot and the order between them was whichever DLL wrote last.
 // Here a slot has ONE thunk and a list of handlers in the order the parts wake. Each handler has its own bit in the slot's armed
 // word: with no bit set the thunk is the game's own call and one read of that word, nothing else. A handler arms itself on an
-// event and disarms itself when its work ends. Handlers are added before the hook is written and never after, so the lists are
+// event and disarms itself when its work ends. A third kind, Instead, runs after the before handlers with the arguments by
+// reference: it may change what the game's call and the after handlers get, or answer the call itself so the game's own function is
+// not called (a hand art swapped for a copy, a light the game would make that a part makes instead). Handlers are added before the
+// hook is written and never after, so the lists are
 // read without a lock. One slot serves the same function on several game classes (a character's and the player's, each
 // projectile class): the handlers are one list, and each class's thunk hands in its own original function.
 // A slot can time its handlers (Meter): the clock is read only round a handler that runs, so a slot nobody armed never reaches it.
@@ -74,6 +77,18 @@ namespace HookDispatch
 			using type = void (*)(A...);
 		};
 
+		// a handler instead of the game's call: true when it answered the call (then a_result is the answer, never the game's)
+		template <class R, class... A>
+		struct InsteadOf
+		{
+			using type = bool (*)(R&, A&...);
+		};
+		template <class... A>
+		struct InsteadOf<void, A...>
+		{
+			using type = bool (*)(A&...);
+		};
+
 		template <class F>
 		struct Handler
 		{
@@ -112,6 +127,7 @@ namespace HookDispatch
 		using Original = R (*)(A...);
 		using Before = void (*)(A...);
 		using After = typename Detail::AfterOf<R, A...>::type;
+		using Instead = typename Detail::InsteadOf<R, A...>::type;
 
 		constexpr explicit Slot(const char* a_name) noexcept :
 			name(a_name) {}
@@ -140,18 +156,36 @@ namespace HookDispatch
 			return { &armed, std::uint32_t{ 1 } << (kMost + afterCount++) };
 		}
 
+		// a handler that runs after the before handlers with the arguments by reference: it may change them for the game's call and
+		// every handler after it, or answer the call itself. The lowest armed one that answers ends the list; one that throws answers
+		// nothing (what it changed before the throw stays changed)
+		[[nodiscard]] Armed AddInstead(const char* a_part, Instead a_handler) noexcept
+		{
+			if (Sealed() || !a_handler || insteadCount >= kMost) {
+				return {};
+			}
+			instead[insteadCount].function = a_handler;
+			instead[insteadCount].part = a_part;
+			return { &insteadArmed, std::uint32_t{ 1 } << insteadCount++ };
+		}
+
 		// a hook is written only for a slot some awake part asked for
-		[[nodiscard]] bool Wanted() const noexcept { return beforeCount + afterCount != 0; }
+		[[nodiscard]] bool Wanted() const noexcept { return beforeCount + afterCount + insteadCount != 0; }
 		// any thread: once it reads true, the handler lists are complete and never change again (Seal publishes them)
 		[[nodiscard]] bool        Sealed() const noexcept { return sealed.load(std::memory_order_acquire); }
 		[[nodiscard]] const char* Name() const noexcept { return name; }
 
-		// called before the first thunk of this slot is written: from here on no handler is added
+		// called at the slot's install moment, written or not: from here on no handler is added, so one added later is refused
+		// (its part is told by the empty switch) and never accepted onto a slot that has no thunk
 		void Seal(Fault a_fault) noexcept
 		{
 			fault = a_fault;
 			sealed.store(true, std::memory_order_release);
 		}
+
+		// a thunk of this slot is in the game. Sealed says the lists are complete; only this says a thunk runs them
+		void               MarkWritten() noexcept { written.store(true, std::memory_order_release); }
+		[[nodiscard]] bool Written() const noexcept { return written.load(std::memory_order_acquire); }
 
 		// a thunk's whole body; a_original is the game's own function at the place that thunk was written
 		R Call(Original a_original, A... a_args)
@@ -162,12 +196,17 @@ namespace HookDispatch
 				}
 			}
 			if constexpr (std::is_void_v<R>) {
-				a_original(a_args...);
+				if (!Answered(a_args...)) {
+					a_original(a_args...);
+				}
 				if (const auto word = armed.load(std::memory_order_relaxed) >> kMost) {
 					RunAfter(word, a_args...);
 				}
 			} else {
-				R result = a_original(a_args...);
+				R result{};
+				if (!Answered(result, a_args...)) {
+					result = a_original(a_args...);
+				}
 				if (const auto word = armed.load(std::memory_order_relaxed) >> kMost) {
 					RunAfter(word, result, a_args...);
 				}
@@ -192,6 +231,9 @@ namespace HookDispatch
 			for (std::size_t i = 0; i < afterCount; ++i) {
 				after[i].Reset();
 			}
+			for (std::size_t i = 0; i < insteadCount; ++i) {
+				instead[i].Reset();
+			}
 		}
 
 		// for DevBench: each handler's part, how often it ran (a slot nobody armed reads 0 everywhere) and, while the meter was
@@ -200,26 +242,34 @@ namespace HookDispatch
 		{
 			const char*   part{ "" };
 			bool          before{ false };
+			bool          instead{ false };
 			bool          armed{ false };
 			std::uint32_t runs{ 0 };
 			float         usAvg{ 0.0f };
 			float         usMax{ 0.0f };
 		};
 
-		[[nodiscard]] std::size_t Handlers() const noexcept { return static_cast<std::size_t>(beforeCount) + afterCount; }
+		[[nodiscard]] std::size_t Handlers() const noexcept { return static_cast<std::size_t>(beforeCount) + insteadCount + afterCount; }
 
 		[[nodiscard]] Seen At(std::size_t a_index) const noexcept
 		{
 			const auto word = armed.load(std::memory_order_relaxed);
 			if (a_index < beforeCount) {
 				const auto& handler = before[a_index];
-				return { handler.part, true, (word >> a_index & 1) != 0, handler.runs.load(std::memory_order_relaxed),
+				return { handler.part, true, false, (word >> a_index & 1) != 0, handler.runs.load(std::memory_order_relaxed),
 					handler.usAvg.load(std::memory_order_relaxed), handler.usMax.load(std::memory_order_relaxed) };
 			}
 			a_index -= beforeCount;
+			if (a_index < insteadCount) {
+				const auto& handler = instead[a_index];
+				return { handler.part, false, true, (insteadArmed.load(std::memory_order_relaxed) >> a_index & 1) != 0,
+					handler.runs.load(std::memory_order_relaxed), handler.usAvg.load(std::memory_order_relaxed),
+					handler.usMax.load(std::memory_order_relaxed) };
+			}
+			a_index -= insteadCount;
 			if (a_index < afterCount) {
 				const auto& handler = after[a_index];
-				return { handler.part, false, (word >> (kMost + a_index) & 1) != 0, handler.runs.load(std::memory_order_relaxed),
+				return { handler.part, false, false, (word >> (kMost + a_index) & 1) != 0, handler.runs.load(std::memory_order_relaxed),
 					handler.usAvg.load(std::memory_order_relaxed), handler.usMax.load(std::memory_order_relaxed) };
 			}
 			return {};
@@ -228,20 +278,26 @@ namespace HookDispatch
 	private:
 		static constexpr std::uint32_t kBeforeBits = (std::uint32_t{ 1 } << kMost) - 1;
 
+		// true when an Instead handler answered the call; before and after handlers never answer
 		template <class F, class... Args>
-		void Run(std::array<Detail::Handler<F>, kMost>& a_list, std::uint32_t a_word, Args&&... a_args)
+		bool Run(std::array<Detail::Handler<F>, kMost>& a_list, std::uint32_t a_word, Args&&... a_args)
 		{
 			using Clock = std::chrono::steady_clock;
 			// read once a call, and only with a handler to run
 			const bool timed = metered.load(std::memory_order_relaxed);
-			// the armed handlers only, lowest bit first: the order the parts wake in
-			while (a_word != 0) {
+			bool       answered = false;
+			// the armed handlers only, lowest bit first: the order the parts wake in; the first answer ends the list
+			while (a_word != 0 && !answered) {
 				auto& handler = a_list[static_cast<std::size_t>(std::countr_zero(a_word))];
 				a_word &= a_word - 1;
 				const auto start = timed ? Clock::now() : Clock::time_point{};
 				// no exception may reach the game: the handler's work stops there, the next handler and the game go on
 				try {
-					handler.function(a_args...);
+					if constexpr (std::is_same_v<std::invoke_result_t<F, Args&...>, bool>) {
+						answered = handler.function(a_args...);
+					} else {
+						handler.function(a_args...);
+					}
 				} catch (...) {
 					if (!handler.told.exchange(true) && fault) {
 						fault(handler.part, name);
@@ -252,24 +308,41 @@ namespace HookDispatch
 					handler.Note(std::chrono::duration<float, std::micro>(Clock::now() - start).count());
 				}
 			}
+			return answered;
 		}
 
-		void RunBefore(std::uint32_t a_word, A... a_args) { Run(before, a_word, a_args...); }
+		void RunBefore(std::uint32_t a_word, A... a_args) { static_cast<void>(Run(before, a_word, a_args...)); }
+
+		// the Instead handlers on the thunk's own copies of the arguments, so what one changes reaches the game's call; a slot with
+		// none costs one read of a count
+		template <class... Args>
+		[[nodiscard]] bool Answered(Args&... a_args)
+		{
+			if (insteadCount == 0) {
+				return false;
+			}
+			const auto word = insteadArmed.load(std::memory_order_relaxed);
+			return word != 0 && Run(instead, word, a_args...);
+		}
 
 		template <class... Args>
 		void RunAfter(std::uint32_t a_word, Args&&... a_args)
 		{
-			Run(after, a_word, a_args...);
+			static_cast<void>(Run(after, a_word, a_args...));
 		}
 
-		const char*                                name;
-		Fault                                      fault{ nullptr };
-		std::atomic<std::uint32_t>                 armed{ 0 };
-		std::atomic<bool>                          metered{ false };
-		std::array<Detail::Handler<Before>, kMost> before{};
-		std::array<Detail::Handler<After>, kMost>  after{};
-		std::uint8_t                               beforeCount{ 0 };
-		std::uint8_t                               afterCount{ 0 };
-		std::atomic<bool>                          sealed{ false };
+		const char*                                 name;
+		Fault                                       fault{ nullptr };
+		std::atomic<std::uint32_t>                  armed{ 0 };
+		std::atomic<bool>                           metered{ false };
+		std::array<Detail::Handler<Before>, kMost>  before{};
+		std::array<Detail::Handler<After>, kMost>   after{};
+		std::array<Detail::Handler<Instead>, kMost> instead{};
+		std::atomic<std::uint32_t>                  insteadArmed{ 0 };
+		std::uint8_t                                beforeCount{ 0 };
+		std::uint8_t                                afterCount{ 0 };
+		std::uint8_t                                insteadCount{ 0 };
+		std::atomic<bool>                           sealed{ false };
+		std::atomic<bool>                           written{ false };
 	};
 }

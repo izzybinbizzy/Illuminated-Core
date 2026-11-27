@@ -10,6 +10,7 @@
 #include "Kernel.h"
 
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -33,6 +34,20 @@ namespace Core
 		constexpr std::span<const std::string_view>    kFeatures{};
 		// each part's work per moment of the session, in the order the parts wake; a part joins both lists together
 		constexpr std::span<const Lifecycle::Part> kWork{};
+		// the two lists are one list told twice: a part named in one and not the other, or in another place, never builds
+		[[nodiscard]] consteval bool OneList()
+		{
+			if (kParts.size() != kWork.size()) {
+				return false;
+			}
+			for (std::size_t i = 0; i < kParts.size(); ++i) {
+				if (kParts[i].id != kWork[i].known.id) {
+					return false;
+				}
+			}
+			return true;
+		}
+		static_assert(OneList(), "kParts and kWork name the same parts in the same order");
 
 		void PartFault(std::string_view a_part, Lifecycle::Moment a_moment) noexcept
 		{
@@ -59,12 +74,24 @@ namespace Core
 			return state;
 		}
 
+		// a path's text as UTF-8 bytes in a plain string
+		[[nodiscard]] std::string Bytes(const std::filesystem::path& a_path)
+		{
+			const auto text = a_path.generic_u8string();
+			return { reinterpret_cast<const char*>(text.data()), text.size() };
+		}
+
 		// a small file's whole text, or nothing when it is missing, too large or cannot be read
 		[[nodiscard]] std::optional<std::string> FileText(const std::filesystem::path& a_path)
 		{
 			std::error_code ec;
 			const auto      size = std::filesystem::file_size(a_path, ec);
-			if (ec || size > kMostBytes) {
+			if (ec) {
+				return std::nullopt;
+			}
+			// the box says only "could not be read": the log says why, so the one who made the file can find it
+			if (size > kMostBytes) {
+				SKSE::log::warn("{} is {} KB, past the {} KB a file of the core may be: it is not read", Bytes(a_path), size / 1024, kMostBytes / 1024);
 				return std::nullopt;
 			}
 			std::ifstream in(a_path, std::ios::binary);
@@ -79,23 +106,20 @@ namespace Core
 			return text;
 		}
 
-		// a path's text as UTF-8 bytes in a plain string
-		[[nodiscard]] std::string Bytes(const std::filesystem::path& a_path)
-		{
-			const auto text = a_path.generic_u8string();
-			return { reinterpret_cast<const char*>(text.data()), text.size() };
-		}
-
 		// every *.json of the Modules folder (the ending in any case), by name so two starts read them in one order; a_leftOut
 		// counts the ones past the most a start reads; a_unread is set when the folder is there but its listing stopped on an error
 		[[nodiscard]] std::vector<SurveyText::File> ReadManifests(std::size_t& a_leftOut, bool& a_unread)
 		{
-			std::vector<SurveyText::File>       out;
-			std::error_code                     ec;
+			std::vector<SurveyText::File> out;
+			std::error_code               ec;
+			// no Modules folder at all is no mod installed, asked plainly: a missing folder seen through a virtual file system
+			// (MO2) can fail the listing with a code other than "no such file", and that is no folder, not one that could not be opened
+			if (const bool there = std::filesystem::exists(kModules, ec); !there && !ec) {
+				return out;
+			}
 			std::filesystem::directory_iterator it(kModules, ec);
-			// no Modules folder at all is no mod installed; any other error is a folder that could not be opened
 			if (ec) {
-				a_unread = ec != std::errc::no_such_file_or_directory;
+				a_unread = true;
 				return out;
 			}
 			for (const std::filesystem::directory_iterator end; !ec && it != end; it.increment(ec)) {
@@ -177,9 +201,12 @@ namespace Core
 			const auto      files = ReadManifests(leftOut, folderUnread);
 			const auto      read = FileText(kSwitches);
 			std::error_code ec;
-			// no file is every switch on; a file that is there and cannot be read is said so and never written over
-			const bool unread = !read && std::filesystem::exists(kSwitches, ec);
-			const auto switches = read.value_or(std::string{});
+			// no file is every switch on; a file that is there and cannot be read is said so and never written over, and a file
+			// that cannot even be looked at counts as there: an error of exists() must never let a move in the menu write over it
+			const bool wide = read && SwitchesText::Wide(*read);
+			const bool unread = wide || (!read && (std::filesystem::exists(kSwitches, ec) || ec));
+			// a UTF-16 file reads as no switch at all, every part on and no word why: it is a file that could not be read instead
+			const auto switches = wide ? std::string{} : read.value_or(std::string{});
 			// an old version's plugin or files are looked for per part; no part is built in yet
 			auto survey = std::make_shared<const SurveyText::Survey>(
 				SurveyText::Look({ files, switches, kParts, VersionNow(), kFeatures, {}, unread, leftOut, folderUnread }));
@@ -241,8 +268,23 @@ namespace Core
 		return std::ranges::any_of(survey->rows, [](const SurveyText::Row& a_row) { return a_row.state == SurveyText::State::kRuns; });
 	}
 
+	namespace
+	{
+		std::atomic<std::uint32_t> gLoad{ 0 };
+	}
+
+	std::uint32_t LoadNow() noexcept
+	{
+		return gLoad.load(std::memory_order_acquire);
+	}
+
 	void Tell(Lifecycle::Moment a_moment, bool a_ok)
 	{
+		// the old world's work is stale from here: the number moves before any part is told, so a loader thread that reads it
+		// after this sees the new number even while the parts still drop the old lists
+		if (a_moment == Lifecycle::Moment::kPreLoadGame || a_moment == Lifecycle::Moment::kNewGame) {
+			gLoad.fetch_add(1, std::memory_order_acq_rel);
+		}
 		Lifecycle::Run(kWork, a_moment, a_ok, [](std::string_view a_id) { return IsAwake(a_id); }, PartFault);
 	}
 

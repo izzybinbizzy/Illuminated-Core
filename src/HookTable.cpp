@@ -20,11 +20,12 @@ namespace Core::Hooks
 		// how many places were written; counted on the main thread, read by DevBench on its own
 		std::atomic<std::size_t> gWritten{ 0 };
 
-		// every slot of the table, for what is done to all of them alike: a new slot is named here once
+		// every slot of the table with the moment its row is written at, for what is done to all of them alike: a new slot is
+		// named here once, and its moment with it, so a row can never be written at a moment the table does not name
 		template <class F>
 		void ForEachSlot(F&& a_do)
 		{
-			a_do(gPlayerUpdate);
+			a_do(gPlayerUpdate, "post-load");
 		}
 	}
 
@@ -59,20 +60,26 @@ namespace Core::Hooks
 		return gWritten.load(std::memory_order_relaxed);
 	}
 
+	// data load: no row yet. A slot of this moment is written here and named in ForEachSlot with "data load"
+	void WriteAtDataLoad()
+	{
+	}
+
 	std::vector<Row> Rows()
 	{
 		std::vector<Row> rows;
-		ForEachSlot([&rows](const auto& a_slot) {
-			Row row{ a_slot.Name(), a_slot.Sealed(), a_slot.Metered(), {} };
+		ForEachSlot([&rows](const auto& a_slot, const char* a_moment) {
+			// a slot is sealed at its moment whether or not it was written: "written" is the thunk, the lists come with the seal
+			Row row{ a_slot.Name(), a_moment, a_slot.Written(), a_slot.Metered(), {} };
 			// read on DevBench's thread: the handler lists only once the slot is sealed, when they are complete and never change
-			if (!row.written) {
+			if (!a_slot.Sealed()) {
 				rows.push_back(std::move(row));
 				return;
 			}
 			row.handlers.reserve(a_slot.Handlers());
 			for (std::size_t i = 0; i < a_slot.Handlers(); ++i) {
 				const auto seen = a_slot.At(i);
-				row.handlers.push_back({ seen.part, seen.before, seen.armed, seen.runs, seen.usAvg, seen.usMax });
+				row.handlers.push_back({ seen.part, seen.before, seen.instead, seen.armed, seen.runs, seen.usAvg, seen.usMax });
 			}
 			rows.push_back(std::move(row));
 		});
@@ -81,11 +88,11 @@ namespace Core::Hooks
 
 	void Meter(bool a_on) noexcept
 	{
-		ForEachSlot([a_on](auto& a_slot) { a_slot.Meter(a_on); });
+		ForEachSlot([a_on](auto& a_slot, const char*) { a_slot.Meter(a_on); });
 	}
 
 	void ResetCounts() noexcept
 	{
-		ForEachSlot([](auto& a_slot) { a_slot.ResetCounts(); });
+		ForEachSlot([](auto& a_slot, const char*) { a_slot.ResetCounts(); });
 	}
 }

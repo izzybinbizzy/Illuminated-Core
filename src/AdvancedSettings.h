@@ -185,6 +185,14 @@ namespace AdvancedSettings
 				return r;
 			}
 			std::string_view l = line;
+			// UTF-16 (Notepad's "Unicode") reads as no setting at all, and a file with none is written over with defaults: it is a
+			// file that could not be read instead, left as it is (a zero byte is in no UTF-8 settings file)
+			if ((first && (l.starts_with("\xFF\xFE") || l.starts_with("\xFE\xFF"))) || l.find('\0') != std::string_view::npos) {
+				r.warnings.emplace_back("the file is saved as UTF-16 (\"Unicode\"); it is read only as UTF-8 and left as it is");
+				r.complete = false;
+				r.failed = true;
+				return r;
+			}
 			if (first && l.starts_with("\xEF\xBB\xBF")) {
 				l.remove_prefix(3);
 			}

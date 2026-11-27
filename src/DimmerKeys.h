@@ -262,7 +262,9 @@ namespace DimmerKeys
 			};
 			static std::mutex         lock;
 			static std::vector<Entry> kept;
-			// a session uses a handful; past this many a loop is made and not kept, so nothing grows without end
+			static std::size_t        oldest = 0;
+			// a session uses a handful; past this many the oldest kept loop makes room, so nothing grows without end and a depth in
+			// use is kept again after a slider swept 64 others past it (not kept, it would be traced anew for every light)
 			constexpr std::size_t kMostKept = 64;
 			{
 				std::scoped_lock guard{ lock };
@@ -275,8 +277,18 @@ namespace DimmerKeys
 			auto loop = std::make_shared<const Loop>(
 				Trace([&](double a_time) { return static_cast<double>(Pulse::Factor(a_kind, a_time, 0, a_depth)); }, a_period, GridFor(a_depth)));
 			std::scoped_lock guard{ lock };
+			// another thread may have traced the same loop meanwhile: one entry each
+			for (const auto& entry : kept) {
+				if (entry.kind == a_kind && entry.depth == a_depth) {
+					return entry.loop;
+				}
+			}
 			if (kept.size() < kMostKept) {
 				kept.push_back({ a_kind, a_depth, loop });
+			} else {
+				kept[oldest] = { a_kind, a_depth, loop };
+				// the next slot round the kept list: a place in the list, not a count of frames
+				oldest = oldest + 1 < kMostKept ? oldest + 1 : 0;
 			}
 			return loop;
 		}

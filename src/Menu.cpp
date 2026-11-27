@@ -51,6 +51,23 @@ namespace Core
 		// top of its pages, so the core's is set again at the top of each of its own
 		constexpr std::uint32_t kCandleGold = 0xFFC94D;
 
+		// ImGui's pushes paired by scope: a throw between a push and its pop (a translated line allocates) is caught by Guarded
+		// outside the page, and would leave the push on ImGui's stack for every frame after
+		struct ScopedID
+		{
+			explicit ScopedID(int a_id) { PushID(a_id); }
+			~ScopedID() { PopID(); }
+			ScopedID(const ScopedID&) = delete;
+			ScopedID& operator=(const ScopedID&) = delete;
+		};
+		struct ScopedWrap
+		{
+			ScopedWrap() { PushTextWrapPos(0.0f); }
+			~ScopedWrap() { PopTextWrapPos(); }
+			ScopedWrap(const ScopedWrap&) = delete;
+			ScopedWrap& operator=(const ScopedWrap&) = delete;
+		};
+
 		// a part's state this session, in the page's words
 		[[nodiscard]] const char* StateWords(SurveyText::State a_state)
 		{
@@ -85,7 +102,7 @@ namespace Core
 				const auto name = std::format("{} {}", row.title, ManifestText::Shown(row.dataVersion));
 				const auto it = std::ranges::find(switches, std::string_view(row.module), &std::pair<std::string_view, bool>::first);
 				// each row its own id: two mods may carry one name
-				PushID(index++);
+				const ScopedID id{ index++ };
 				// a part this core does not have, and one named by two files, carry no switch
 				if (!row.known || row.twice || it == switches.end()) {
 					MenuStyle::Status(false, name.c_str());
@@ -95,15 +112,19 @@ namespace Core
 						static_cast<void>(SetSwitch(row.module, on));
 					}
 					MenuStyle::Tip(T("Off, this mod's part of Illuminated Core Framework does not run. A change takes hold from the next game start."));
-					// what the next start does, only where it differs from this session
+					// what the next start does, only where it differs from this session. With Settings.ini unreadable a moved switch is
+					// kept for this session only and never written (Kernel.cpp SetSwitch): the next start does not change, and it says so
 					if (on != (row.state != SurveyText::State::kSwitchedOff)) {
 						SameLine(0.0f, 12.0f);
-						TextColored(kMuted, "%s", on ? T("on from the next game start") : T("off from the next game start"));
+						if (survey->switchesUnread) {
+							TextColored(MenuStyle::kBad, "%s", T("not saved: Settings.ini could not be read"));
+						} else {
+							TextColored(kMuted, "%s", on ? T("on from the next game start") : T("off from the next game start"));
+						}
 					}
 				}
 				SameLine(0.0f, 12.0f);
 				TextColored(row.state == SurveyText::State::kStaysOff ? MenuStyle::kBad : kMuted, "%s", StateWords(row.state));
-				PopID();
 			}
 		}
 
@@ -119,13 +140,12 @@ namespace Core
 				return;
 			}
 			MenuStyle::Note(T("Found when the game started. The same lines are in IlluminatedCore.log."));
-			PushTextWrapPos(0.0f);
+			const ScopedWrap wrap;
 			for (const auto& problem : survey->problems) {
 				Bullet();
 				SameLine();
 				TextUnformatted(problem.c_str());
 			}
-			PopTextWrapPos();
 		}
 
 		// SKSE Menu Framework calls these from its own DLL on the render thread: nothing may be thrown back across

@@ -361,6 +361,28 @@ namespace
 		CHECK(look(flood).problems.size() == 300 && look(flood).rows.empty());
 	}
 
+	// what the audit of 2026-11-27 found in the readers, each as it reads now
+	void AuditFixes()
+	{
+		// a part's id in any case, as Settings.ini reads its key (C13)
+		const auto upper = Parse(R"({"format":1,"module":"Wards","dataVersion":"5","needsCore":"1"})");
+		CHECK(upper.manifest.has_value() && upper.manifest->module == "wards");
+		CHECK(upper.manifest && Judge(*upper.manifest, kKnown, kCoreNow, kFeatures) == Verdict::kRuns);
+		// 1 and 1.0 are one format; any other number is not this format (C14)
+		CHECK(Parse(R"({"format":1.0,"module":"wards","dataVersion":"5","needsCore":"1"})").manifest.has_value());
+		CHECK(!Parse(R"({"format":1.5,"module":"wards","dataVersion":"5","needsCore":"1"})").manifest.has_value());
+		CHECK(!Parse(R"({"format":2.0,"module":"wards","dataVersion":"5","needsCore":"1"})").manifest.has_value());
+		// a Settings.ini saved as UTF-16 (Notepad's "Unicode") is told apart from one with no line: the kernel then counts it as a
+		// file that could not be read, says so, and never writes over it (C22)
+		std::string wide = "\xFF\xFE";
+		for (const char c : std::string_view("[Modules]\r\nwards = off\r\n")) {
+			wide += c;
+			wide += '\0';
+		}
+		CHECK(SwitchesText::Wide(wide) && SwitchesText::Wide(std::string_view("\xFE\xFF\0[", 4)) && SwitchesText::Wide(std::string_view("a\0b", 3)));
+		CHECK(!SwitchesText::Wide("[Modules]\nwards = off\n") && !SwitchesText::Wide("\xEF\xBB\xBF[Modules]\n") && !SwitchesText::Wide(""));
+	}
+
 	void Twice()
 	{
 		std::vector<Manifest> all(3);
@@ -382,6 +404,7 @@ int main()
 	Judging();
 	Lines();
 	Twice();
+	AuditFixes();
 	Switches();
 	Surveys();
 	// the kernel's own check sets that live beside their subjects: the shared hook, the dimmer's keys, the composer, the moments,

@@ -73,19 +73,10 @@ namespace Translation
 			return { a_key, Shown::kGuess };
 		}
 
-		// CommonLib's SKSE::Translation::ParseTranslation and ::Translate (our pin, Translation.cpp 46 / 129) each take a reference on
-		// the game's translator (GetStateAddRef) and never give it back, on every path once the loader is there. Called right after
-		// either: one reference of our own is taken and released with the one the helper left (none when the loader is not there,
-		// as the helper took none). The game keeps its own references, so the translator never goes. Main thread
-		inline void GiveBackTranslator()
-		{
-			const auto* manager = RE::BSScaleformManager::GetSingleton();
-			auto*       loader = manager ? manager->loader : nullptr;
-			if (auto* translator = loader ? loader->GetStateAddRef<RE::GFxTranslator>(RE::GFxState::StateType::kTranslator) : nullptr) {
-				translator->Release();
-				translator->Release();
-			}
-		}
+		// CommonLib's SKSE::Translation::ParseTranslation and ::Translate (our pin, Translation.cpp 46 / 129) take a reference on the
+		// game's translator and do not give it back. It is not given back here either: the game keeps the translator for the whole
+		// session, so a reference too many never reaches zero, while one Release too many - a path of the helper that took none, a
+		// CommonLib that fixed its leak - frees the translator under the game
 
 		// the file ParseTranslation opens (its own path and language, Translation.cpp 55-63), through the game's loader, so a file
 		// packed in an archive is measured too; 0 when there is none
@@ -115,7 +106,6 @@ namespace Translation
 			return std::format("translation: {} is {} bytes, more than {} - it is not read and the menu stays English", path, bytes, kMostFileBytes);
 		}
 		SKSE::Translation::ParseTranslation(std::string(a_name));
-		Detail::GiveBackTranslator();
 		return "translation: the menu's lines come from Interface\\Translations\\" + std::string(a_name) +
 		       "_<the game's language>.txt; a missing file or line stays English";
 	}
@@ -192,7 +182,6 @@ namespace Translation
 		std::string       read;
 		const auto        key = TranslationText::KeyOf(state.name, english);
 		const bool        translated = SKSE::Translation::Translate(key, read);
-		GiveBackTranslator();  // our keys carry no {}: Translate took exactly one reference
 		if (translated && read != key) {
 			read = TranslationText::Unescape(read);
 			if (TranslationText::Usable(english, read, shownAs)) {

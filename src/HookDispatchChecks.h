@@ -20,7 +20,7 @@ namespace HookDispatchChecks
 	using Check = void (*)(bool a_ok, const char* a_what, int a_line);
 
 	// the checks one Run makes (raise it when checks are added)
-	inline constexpr int kCount = 48;
+	inline constexpr int kCount = 59;
 
 	// what ran, in order: the stand-in for the game's function writes "game", each handler its own word
 	inline std::string gRan;
@@ -232,6 +232,78 @@ namespace HookDispatchChecks
 		timed.ResetCounts();
 		CORE_CHECK(timed.At(0).runs == 0 && timed.At(0).usAvg == 0.0f && timed.At(1).runs == 0 && timed.At(1).usMax == 0.0f && timed.Metered() &&
 				   spinner.IsArmed());
+
+		// a slot is sealed at its moment whether or not a thunk was written: a handler added later is refused, and only Written
+		// says a thunk runs the lists (the audit's C2)
+		static IntSlot unwritten("unwritten");
+		CORE_CHECK(!unwritten.Written() && !unwritten.Sealed());
+		unwritten.Seal(Fault);
+		CORE_CHECK(unwritten.Sealed() && !unwritten.Written() && !unwritten.AddAfter("late", [](int&, int) {}) && !unwritten.Wanted());
+		unwritten.MarkWritten();
+		CORE_CHECK(unwritten.Written() && unwritten.Handlers() == 0);
+
+		// an instead handler runs after the before handlers with the arguments by reference: a change reaches the game's call and
+		// the after handlers (the audit's C4: a ward's art swapped before the game loads it)
+		static IntSlot swapped("swap");
+		const auto     swapper = swapped.AddInstead("wards", [](int&, int& a_value) {
+			gRan += "swapped ";
+			a_value = 7;
+			return false;
+		});
+		const auto     swapSeen = swapped.AddAfter("illuminated", [](int& a_result, int a_value) { gRan += "after(" + std::to_string(a_value) + "," + std::to_string(a_result) + ") "; });
+		CORE_CHECK(swapper && swapSeen && swapped.Wanted() && swapped.Handlers() == 2);
+		swapped.Seal(Fault);
+		swapper.Arm();
+		swapSeen.Arm();
+		gRan.clear();
+		CORE_CHECK(swapped.Call(Game, 2) == 14 && gRan == "swapped game after(7,14) ");
+		CORE_CHECK(swapped.At(0).instead && !swapped.At(0).before && swapped.At(0).armed && swapped.At(0).runs == 1 && !swapped.At(1).instead && !swapped.At(1).before);
+
+		// one that answers skips the game's own call: the after handlers see its answer; disarmed, the game's call is back
+		static IntSlot skip("skip");
+		const auto     skipper = skip.AddInstead("wards", [](int& a_result, int&) {
+			a_result = -5;
+			return true;
+		});
+		const auto     second = skip.AddInstead("late", [](int&, int&) {
+			gRan += "second ";
+			return true;
+		});
+		const auto     bump = skip.AddAfter("p", [](int& a_result, int) { ++a_result; });
+		skip.Seal(Fault);
+		skipper.Arm();
+		second.Arm();
+		bump.Arm();
+		gRan.clear();
+		CORE_CHECK(skip.Call(Game, 2) == -4 && gRan.empty() && skip.At(1).runs == 0);
+		skipper.Disarm();
+		second.Disarm();
+		gRan.clear();
+		CORE_CHECK(skip.Call(Game, 2) == 5 && gRan == "game ");
+		// refused once sealed, as every other kind
+		CORE_CHECK(!skip.AddInstead("late", [](int&, int&) { return true; }) && skip.Handlers() == 3);
+
+		// one that throws answers nothing: what it changed before the throw stays changed, the game's call runs, it is told once
+		static IntSlot thrown("thrown");
+		const auto     breaker = thrown.AddInstead("breaker", [](int&, int& a_value) -> bool {
+			a_value = 3;
+			throw std::runtime_error("x");
+		});
+		thrown.Seal(Fault);
+		breaker.Arm();
+		gFaults.clear();
+		gRan.clear();
+		CORE_CHECK(thrown.Call(Game, 2) == 6 && gRan == "game " && thrown.Call(Game, 2) == 6 && gFaults == "breaker@thrown ");
+
+		// a function that returns nothing: an answer skips it as well
+		static Slot<void, int*> plainSkip("plain skip");
+		const auto              stand = plainSkip.AddInstead("p", [](int*&) { return true; });
+		plainSkip.Seal(Fault);
+		stand.Arm();
+		int untouched = 0;
+		gRan.clear();
+		plainSkip.Call(GameVoid, &untouched);
+		CORE_CHECK(untouched == 0 && gRan.empty());
 	}
 
 #undef CORE_CHECK

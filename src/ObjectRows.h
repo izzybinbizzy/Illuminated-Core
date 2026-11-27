@@ -136,13 +136,15 @@ namespace ObjectRows
 		std::vector<Fault> faults;
 	};
 
-	// a model path as compared everywhere: lower case, backslashes, no leading "data\" or "meshes\"
+	// a model path as compared everywhere: lower case, backslashes, no leading backslash, "data\" or "meshes\" (a record or a
+	// config written "\Meshes\x.nif" is the same model: Soul Gem Hub's and RELight's keys already drop a leading backslash)
 	[[nodiscard]] inline std::string NormalModel(std::string_view a_path)
 	{
 		std::string out(a_path);
 		for (auto& c : out) {
 			c = c == '/' ? '\\' : static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
 		}
+		out.erase(0, (std::min)(out.find_first_not_of('\\'), out.size()));
 		for (const std::string_view lead : { "data\\", "meshes\\" }) {
 			if (std::string_view(out).starts_with(lead)) {
 				out.erase(0, lead.size());
@@ -282,6 +284,18 @@ namespace ObjectRows
 				a_line = Trim(a_line.substr(0, note));
 			}
 			return a_line.size() >= 2 && a_line.front() == '[' && a_line.back() == ']' && Lower(Trim(a_line.substr(1, a_line.size() - 2))) == "object";
+		}
+
+		// a value with a note after it ("255,0,0 ; red") as the value alone. A note starts at a # or ; with a space or tab before
+		// it, so a model path that holds one ("a#b.nif") stays whole
+		[[nodiscard]] inline std::string_view NoNote(std::string_view a_value)
+		{
+			for (std::size_t i = 1; i < a_value.size(); ++i) {
+				if ((a_value[i] == '#' || a_value[i] == ';') && (a_value[i - 1] == ' ' || a_value[i - 1] == '\t')) {
+					return Trim(a_value.substr(0, i));
+				}
+			}
+			return a_value;
 		}
 
 		// a key as the reader knows it: its name, and the lighting it is for (none = plain)
@@ -436,7 +450,7 @@ namespace ObjectRows
 				continue;
 			}
 			const auto rawKey = Detail::Trim(line.substr(0, equals));
-			const auto value = Detail::Trim(line.substr(equals + 1));
+			const auto value = Detail::NoNote(Detail::Trim(line.substr(equals + 1)));
 			if (!row) {
 				const auto key = Detail::Lower(rawKey);
 				const auto n = Detail::Integer(value);

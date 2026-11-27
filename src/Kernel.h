@@ -77,6 +77,12 @@ namespace Core
 	// a moment of the session handed to every awake part, in the parts' order (Lifecycle.h); a_ok is the save's own verdict after
 	// a load and true otherwise. Main thread. With no part awake it does nothing
 	void Tell(Lifecycle::Moment a_moment, bool a_ok);
+
+	// which load of the session this is: a new number at every load and new game, before any part hears of it. A part notes it
+	// with each piece of work it hands to a loader thread, a task or a list kept across frames, and drops that work when the number
+	// moved: the world it was taken in is gone, and a body, a 3D or a light of it must not be touched (the crash after reloading a
+	// save mid-fight). Any thread
+	[[nodiscard]] std::uint32_t LoadNow() noexcept;
 	// what Look found; any thread, never null (empty before post-load)
 	[[nodiscard]] std::shared_ptr<const SurveyText::Survey> SurveyNow();
 	// every part with its switch for the next game start; any thread

@@ -53,6 +53,18 @@ namespace DimmerKit
 			static REL::Relocation<F> replace{ RELOCATION_ID(71071, 72669) };
 			replace(a_data, a_keys, a_count, RE::NiAnimationKey::KeyType::kLink);
 		}
+
+		// this dimmer is on this light's own controller list, the one the game runs (NiObjectNET::GetControllers and
+		// NiTimeController::GetNext, CommonLib at our pin: NiObjectNET.h:34, NiTimeController.h:72). A list is a few controllers long
+		[[nodiscard]] inline bool Hangs(RE::NiLight* a_light, const RE::NiTimeController* a_dimmer)
+		{
+			for (auto* controller = a_light->GetControllers(); controller; controller = controller->GetNext()) {
+				if (controller == a_dimmer) {
+					return true;
+				}
+			}
+			return false;
+		}
 	}
 
 	// the five ids are in the VR Address Library only from 0.295.0, and a missing id stops the game at its first use: with an
@@ -130,14 +142,18 @@ namespace DimmerKit
 		if (!a_keys || !a_light) {
 			return;
 		}
+		// the game runs a dimmer only through the light's own controller list, so that list is asked, not the dimmer's target: a
+		// light made anew at the old one's address looks like the old one by target and holds no dimmer. A dimmer that hangs on no
+		// list of this light is never moved off its old light (SetTarget would read a light the game may have let go - inferred,
+		// needs the game's SetTarget body): this light gets a dimmer of its own, and the old one goes with its old light
+		if (a_dimmer && !Detail::Hangs(a_light, a_dimmer.get())) {
+			a_dimmer.reset();
+		}
 		if (!a_dimmer) {
 			a_dimmer.reset(Detail::NewDimmer());
 			if (!a_dimmer) {
 				return;
 			}
-		}
-		// a light that was made anew takes the dimmer over: the game runs a dimmer only through the light it hangs on
-		if (a_dimmer->target != a_light) {
 			using Flag = RE::NiAVObject::Flag;
 			a_light->GetFlags().set(Flag::kSelectiveUpdate, Flag::kSelectiveUpdateController);
 			a_dimmer->SetTarget(a_light);

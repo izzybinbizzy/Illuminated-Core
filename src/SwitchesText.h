@@ -57,6 +57,13 @@ namespace SwitchesText
 		return std::nullopt;
 	}
 
+	// text saved as UTF-16 (Notepad's "Unicode"), which reads as no line at all: told apart from UTF-8 by its mark or a zero
+	// byte, which no UTF-8 settings file holds. Such a file is one that could not be read: said so, never written over
+	[[nodiscard]] inline bool Wide(std::string_view a_text) noexcept
+	{
+		return a_text.starts_with("\xFF\xFE") || a_text.starts_with("\xFE\xFF") || a_text.find('\0') != std::string_view::npos;
+	}
+
 	struct Read
 	{
 		// one answer per part the file names, in the file's order, each part once

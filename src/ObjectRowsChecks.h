@@ -15,7 +15,7 @@ namespace ObjectRowsChecks
 	using Check = void (*)(bool a_ok, const char* a_what, int a_line);
 
 	// the checks one Run makes (raise it when checks are added)
-	inline constexpr int kCount = 86;
+	inline constexpr int kCount = 89;
 
 #define CORE_CHECK(...) a_check((__VA_ARGS__), #__VA_ARGS__, __LINE__)
 
@@ -112,7 +112,16 @@ namespace ObjectRowsChecks
 		CORE_CHECK(tooMany.rows.empty() && tooMany.faults.size() == 1);
 
 		// a model as compared everywhere
-		CORE_CHECK(NormalModel("Data/Meshes/Clutter/Jar.NIF") == "clutter\\jar.nif" && NormalModel("meshes\\a.nif") == "a.nif" && NormalModel("x/Y.nif") == "x\\y.nif");
+		CORE_CHECK(NormalModel("Data/Meshes/Clutter/Jar.NIF") == "clutter\\jar.nif" && NormalModel("meshes\\a.nif") == "a.nif" && NormalModel("x/Y.nif") == "x\\y.nif" &&
+				   NormalModel("\\Meshes\\A.nif") == "a.nif" && NormalModel("/data/meshes/a.nif") == "a.nif" && NormalModel("\\\\").empty());
+		// a note after a value is passed over, as every other reader of ours does; a # or ; with no space before it is part of the
+		// value, so a model path that holds one stays whole (the audit's C11)
+		const auto noted = Read("format=1\n[object]\nmodel=a.nif\ncolor=255,0,0 ; red\n");
+		CORE_CHECK(noted.rows.size() == 1 && noted.faults.empty());
+		const auto formNote = Read("format=1 ; the format\n[object]\nmodel=a.nif\ncolor=1,2,3\n");
+		CORE_CHECK(formNote.rows.size() == 1 && formNote.faults.empty());
+		const auto keptWhole = Read("format=1\n[object]\nmodel=a#b;c.nif\ncolor=1,2,3\n");
+		CORE_CHECK(keptWhole.rows.size() == 1 && keptWhole.rows[0].models.size() == 1 && keptWhole.rows[0].models[0] == "a#b;c.nif");
 		// the three spellings of a form
 		CORE_CHECK(ReadForm(" 0x00ABC~Skyrim.esm ") == FormText{ "skyrim.esm", 0xABC, {} } && ReadForm("Skyrim.ESM|ABC") == FormText{ "skyrim.esm", 0xABC, {} });
 		CORE_CHECK(ReadForm("DweLamp01") == FormText{ {}, 0, "dwelamp01" } && !ReadForm("") && !ReadForm("0x1~") && !ReadForm("a.txt|0x1") && !ReadForm("0xZZ~a.esp"));
