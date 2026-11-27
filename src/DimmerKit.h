@@ -135,6 +135,8 @@ namespace DimmerKit
 	}
 
 	// these keys on this light's dimmer from their start; the dimmer is made the first time. The game runs it from here on.
+	// A caller moving to another light first stops its dimmer and takes it off the old light while it still holds that light
+	// (Stop, then SetTarget(nullptr)): Play never moves a dimmer between lights, so one left on a live light plays on there.
 	// Main thread
 	inline void Play(RE::NiLight* a_light, RE::NiPointer<RE::NiInterpController>& a_dimmer, const RE::NiPointer<RE::NiFloatInterpolator>& a_keys,
 		float a_seconds, bool a_loop)

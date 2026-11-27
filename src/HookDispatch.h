@@ -128,6 +128,8 @@ namespace HookDispatch
 		using Before = void (*)(A...);
 		using After = typename Detail::AfterOf<R, A...>::type;
 		using Instead = typename Detail::InsteadOf<R, A...>::type;
+		// an instead handler may answer the call, so the answer is made before the game's call: said here, at the slot
+		static_assert(std::is_void_v<R> || std::is_default_constructible_v<R>, "a slot's function must return void or a default-constructible type");
 
 		constexpr explicit Slot(const char* a_name) noexcept :
 			name(a_name) {}

@@ -140,10 +140,12 @@ namespace ManifestText
 		}
 		// a part's id in any case, as Settings.ini reads its key: "Wards" is the wards part, never an unknown module. Plain text
 		// is ASCII, so a letter at a time
+		// a mod with no title is shown under the id as its author wrote it
+		const std::string written = *module;
 		std::ranges::transform(*module, module->begin(), [](char a_c) { return a_c >= 'A' && a_c <= 'Z' ? static_cast<char>(a_c - 'A' + 'a') : a_c; });
 		out.module = std::move(*module);
 		auto title = Detail::Text(root, "title");
-		out.title = title && Plain(*title, 80) ? std::move(*title) : out.module;
+		out.title = title && Plain(*title, 80) ? std::move(*title) : written;
 		const auto data = Detail::VersionAt(root, "dataVersion");
 		const auto core = Detail::VersionAt(root, "needsCore");
 		if (!data || !core) {

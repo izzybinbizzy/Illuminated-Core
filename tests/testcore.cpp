@@ -361,12 +361,12 @@ namespace
 		CHECK(look(flood).problems.size() == 300 && look(flood).rows.empty());
 	}
 
-	// what the audit of 2026-11-27 found in the readers, each as it reads now
+	// what the core audit found in the readers, each as it reads now
 	void AuditFixes()
 	{
 		// a part's id in any case, as Settings.ini reads its key (C13)
 		const auto upper = Parse(R"({"format":1,"module":"Wards","dataVersion":"5","needsCore":"1"})");
-		CHECK(upper.manifest.has_value() && upper.manifest->module == "wards");
+		CHECK(upper.manifest.has_value() && upper.manifest->module == "wards" && upper.manifest->title == "Wards");
 		CHECK(upper.manifest && Judge(*upper.manifest, kKnown, kCoreNow, kFeatures) == Verdict::kRuns);
 		// 1 and 1.0 are one format; any other number is not this format (C14)
 		CHECK(Parse(R"({"format":1.0,"module":"wards","dataVersion":"5","needsCore":"1"})").manifest.has_value());

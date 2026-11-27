@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -26,6 +27,17 @@ namespace Core::Hooks
 		void ForEachSlot(F&& a_do)
 		{
 			a_do(gPlayerUpdate, "post-load");
+		}
+
+		// every slot of a moment sealed at it, written or not: a row may sit behind a test (one game version only), and a slot left
+		// unsealed would take a handler later that no thunk ever runs
+		void SealMoment(std::string_view a_moment)
+		{
+			ForEachSlot([a_moment](auto& a_slot, const char* a_its) {
+				if (a_moment == a_its && !a_slot.Sealed()) {
+					a_slot.Seal(Fault);
+				}
+			});
 		}
 	}
 
@@ -53,6 +65,7 @@ namespace Core::Hooks
 	{
 		// once a frame in the world. Slot 0xAD on SE and AE, 0xAF on VR (0xAE there is another function)
 		static_cast<void>(WriteVTable<&gPlayerUpdate, 0>(RE::VTABLE_PlayerCharacter[0], REL::Relocate<std::size_t>(0xAD, 0xAD, 0xAF), "PlayerCharacter"));
+		SealMoment("post-load");
 	}
 
 	std::size_t WrittenCount() noexcept
@@ -63,6 +76,7 @@ namespace Core::Hooks
 	// data load: no row yet. A slot of this moment is written here and named in ForEachSlot with "data load"
 	void WriteAtDataLoad()
 	{
+		SealMoment("data load");
 	}
 
 	std::vector<Row> Rows()
